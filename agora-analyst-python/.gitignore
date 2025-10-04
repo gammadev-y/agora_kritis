@@ -14,7 +14,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -128,6 +127,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Keep .env.template for GitHub Actions setup reference
+!.env.template
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -175,3 +177,12 @@ Desktop.ini
 .env.production
 temp/
 tmp/
+
+# GitHub Actions / CI-CD specific
+# Note: Keep these files tracked for proper CI/CD operation:
+# - lib/ (custom Python modules - ESSENTIAL for GitHub Actions)
+# - analysis/ (core analysis modules)
+# - requirements.txt (dependency specification)
+# - main.py (application entry point)
+# - validate_*.py (validation scripts)
+# - .env.template (environment setup reference)
