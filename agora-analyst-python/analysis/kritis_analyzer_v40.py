@@ -37,12 +37,10 @@ class KritisAnalyzerV40:
         self.model = genai.GenerativeModel('gemini-2.0-flash')
         self.model_version = 'gemini-2.0-flash'
         
-        # Category master list for final categorization
+        # Category master list for final categorization (matches database law_categories)
         self.category_master_list = [
-            'FISCAL', 'LABOR', 'HEALTH', 'EDUCATION', 'ENVIRONMENT', 
-            'ADMINISTRATIVE', 'CIVIL', 'CRIMINAL', 'CONSTITUTIONAL', 
-            'COMMERCIAL', 'SOCIAL_SECURITY', 'DEFENSE', 'JUSTICE',
-            'INFRASTRUCTURE', 'TECHNOLOGY', 'AGRICULTURE', 'TOURISM'
+            'CONSTITUTIONAL', 'FISCAL', 'LABOR', 'HEALTH', 'ENVIRONMENTAL', 
+            'JUDICIAL', 'ADMINISTRATIVE', 'CIVIL', 'CRIMINAL', 'SOCIAL_SECURITY'
         ]
         
     # ========================================
@@ -342,6 +340,10 @@ Return a single, valid JSON object with the following structure. Do not add any 
     "organization": ["Name of Organization"],
     "concept": ["Key Concept 1", "Key Concept 2"]
   }},
+  "dates": {{
+    "effective_date": "YYYY-MM-DD if this article mentions a specific effective/start date, otherwise null",
+    "expiry_date": "YYYY-MM-DD if this article mentions a specific end/expiry date, otherwise null"
+  }},
   "analysis": {{
     "pt": {{
       "informal_summary_title": "A very concise, 5-10 word action-oriented title in Portuguese.",
@@ -399,6 +401,10 @@ Return a single, valid JSON object with the following structure. Do not add any 
                     "person": [],
                     "organization": [],
                     "concept": []
+                },
+                "dates": {
+                    "effective_date": None,
+                    "expiry_date": None
                 },
                 "analysis": {
                     "pt": {
@@ -603,7 +609,7 @@ Synthesize the provided summaries into a single, high-level overview of the enti
             logger.info(f"✅ Created parent law record: {law_id}")
             
             # Step 2: Loop through all analyzed articles
-            cross_references = self._process_analyzed_articles_v40(law_id, extraction_data, analysis_data)
+            cross_references = self._process_analyzed_articles_v40(law_id, extraction_data, analysis_data, extraction_data.get('metadata', {}).get('enactment_date'))
             logger.info(f"✅ Processed all analyzed articles")
             
             # Step 3: Process cross-references and relationships
@@ -658,7 +664,7 @@ Synthesize the provided summaries into a single, high-level overview of the enti
         response = self.supabase_admin.table('laws').insert(law_data).execute()
         return law_data['id']
     
-    def _process_analyzed_articles_v40(self, law_id: str, extraction_data: Dict[str, Any], analysis_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _process_analyzed_articles_v40(self, law_id: str, extraction_data: Dict[str, Any], analysis_data: Dict[str, Any], law_enactment_date: Optional[str] = None) -> List[Dict[str, Any]]:
         """Process all analyzed articles and create law_article_versions."""
         
         analysis_results = analysis_data.get('analysis_results', [])
@@ -680,6 +686,22 @@ Synthesize the provided summaries into a single, high-level overview of the enti
                 else:
                     official_text = f"Article {article_order} text not found"
             
+            # Extract dates from analysis or use law enactment date
+            analysis_dates = analysis.get('dates', {})
+            article_effective_date = analysis_dates.get('effective_date')
+            article_expiry_date = analysis_dates.get('expiry_date')
+            
+            # Determine valid_from: use article's effective date or law's enactment date
+            if article_effective_date:
+                valid_from = article_effective_date
+            elif law_enactment_date:
+                valid_from = law_enactment_date
+            else:
+                valid_from = datetime.utcnow().date().isoformat()
+            
+            # Determine valid_to: only set if article has specific expiry date
+            valid_to = article_expiry_date if article_expiry_date else None
+            
             # Create law_article_version
             version_data = {
                 'id': str(uuid.uuid4()),
@@ -687,7 +709,8 @@ Synthesize the provided summaries into a single, high-level overview of the enti
                 'article_order': article_order,
                 'mandate_id': "50259b5a-054e-4bbf-a39d-637e7d1c1f9f",
                 'status_id': "ACTIVE",
-                'valid_from': datetime.utcnow().date().isoformat(),
+                'valid_from': valid_from,
+                'valid_to': valid_to,
                 'official_text': official_text,
                 'tags': analysis.get('tags', {}),
                 'translations': analysis.get('analysis', {})
