@@ -1,4 +1,4 @@
-name: 🧠 Kritis 4.0 - AI Legal Document Analysis
+name: 🧠 Kritis V4.0 - PROD10 Final AI Legal Document Analysis
 
 on:
   workflow_dispatch:
@@ -10,13 +10,16 @@ on:
       pipeline_stage:
         description: 'Pipeline stage to run'
         required: true
-        default: 'full-pipeline'
+        default: 'v40-complete'
         type: choice
         options:
-          - 'full-pipeline'
-          - 'enhanced-extract'
-          - 'enhanced-analyze-context'
-          - 'intelligent-graph'
+          - 'v40-complete'
+          - 'v40-extract'
+          - 'v40-analyze'
+          - 'v40-synthesize'
+          - 'v40-ingest'
+          - 'v31-complete'
+          - 'validate-environment'
 
 jobs:
   kritis-analysis:
@@ -27,10 +30,10 @@ jobs:
     - name: 📚 Checkout Repository
       uses: actions/checkout@v4
       
-    - name: 🐍 Set up Python 3.11
+    - name: 🐍 Set up Python 3.13
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: '3.13'
         cache: 'pip'
         
     - name: 📦 Install Dependencies
@@ -64,7 +67,7 @@ jobs:
             sys.exit(1)
         "
         
-    - name: 🧠 Run Kritis 4.0 Analysis Pipeline
+    - name: 🧠 Run Kritis V4.0 PROD10 Analysis Pipeline
       run: |
         set -e  # Exit on any error
         cd agora-analyst-python
@@ -72,22 +75,32 @@ jobs:
         SOURCE_ID="${{ github.event.inputs.source_id }}"
         PIPELINE_STAGE="${{ github.event.inputs.pipeline_stage }}"
         
-        echo "🚀 Starting Kritis 4.0 Analysis for Source: $SOURCE_ID"
+        echo "🚀 Starting Kritis V4.0 PROD10 Analysis for Source: $SOURCE_ID"
         echo "📋 Pipeline Stage: $PIPELINE_STAGE"
         
-        if [ "$PIPELINE_STAGE" = "full-pipeline" ]; then
-          echo "🔄 Running Full Kritis 4.0 Pipeline"
+        # Validate environment first
+        echo "🔧 Validating production environment..."
+        python validate_production.py
+        
+        if [ "$PIPELINE_STAGE" = "v40-complete" ]; then
+          echo "🔄 Running Complete Kritis V4.0 PROD10 Pipeline"
+          echo "   - Stage 1: Enhanced Extraction with preamble awareness"
+          echo "   - Stage 2: Definitive Analysis with V4.2 prompts"
+          echo "   - Stage 3: Final Summary Synthesis with category suggestions"
+          echo "   - Stage 4: Definitive Law Ingestion with date intelligence"
           
-          echo "📊 Stage 1: Enhanced Metadata Extraction"
-          python main.py enhanced-extract --source-id "$SOURCE_ID"
+          python main.py v40-complete --source-id "$SOURCE_ID"
+          echo "✅ Complete V4.0 PROD10 pipeline finished successfully!"
           
-          echo "🧠 Stage 2: Enhanced Analysis with Context"
-          python main.py enhanced-analyze-context --source-id "$SOURCE_ID"
+        elif [ "$PIPELINE_STAGE" = "v31-complete" ]; then
+          echo "🔄 Running Complete Kritis V3.1 PROD9 Pipeline"
+          python main.py v31-complete --source-id "$SOURCE_ID"
+          echo "✅ Complete V3.1 PROD9 pipeline finished successfully!"
           
-          echo "🎯 Stage 3: Intelligent Knowledge Graph Builder"
-          python main.py intelligent-graph --source-id "$SOURCE_ID"
-          
-          echo "✅ Full pipeline completed successfully!"
+        elif [ "$PIPELINE_STAGE" = "validate-environment" ]; then
+          echo "🔧 Running Environment Validation Only"
+          python validate_production.py
+          echo "✅ Environment validation completed!"
           
         else
           echo "🔄 Running Single Stage: $PIPELINE_STAGE"
@@ -95,17 +108,22 @@ jobs:
           echo "✅ Stage completed successfully!"
         fi
         
-    - name: 📊 Generate Analysis Report
+    - name: 📊 Generate PROD10 Analysis Report
       if: always()
       run: |
-        echo "## 📊 Kritis 4.0 Analysis Report" >> $GITHUB_STEP_SUMMARY
+        echo "## 📊 Kritis V4.0 PROD10 Analysis Report" >> $GITHUB_STEP_SUMMARY
         echo "- **Source ID**: ${{ github.event.inputs.source_id }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Pipeline Stage**: ${{ github.event.inputs.pipeline_stage }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
         echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: Kritis V4.0 Final Definitive (PROD10)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Features**: Date Intelligence, V4.2 Prompts, Category Suggestions" >> $GITHUB_STEP_SUMMARY
         
         if [ "${{ job.status }}" = "success" ]; then
-          echo "✅ **Result**: Analysis completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Result**: PROD10 analysis completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "🎯 **Quality**: Enhanced AI persona with structured tag categories" >> $GITHUB_STEP_SUMMARY
+          echo "📅 **Innovation**: Intelligent article date extraction and validation" >> $GITHUB_STEP_SUMMARY
         else
           echo "❌ **Result**: Analysis failed - check logs for details" >> $GITHUB_STEP_SUMMARY
+          echo "🔧 **Troubleshooting**: Verify environment secrets and source ID format" >> $GITHUB_STEP_SUMMARY
         fi

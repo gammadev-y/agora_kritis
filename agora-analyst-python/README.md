@@ -1,27 +1,29 @@
-# 🧠 Agora Kritis 4.0 - AI Legal Document Analysis
+# 🧠 Agora Kritis V4.0 - PROD10+ Final AI Legal Document Analysis
 
-[![Kritis 4.0 Analysis](https://github.com/gammadev-y/agora_kritis/actions/workflows/kritis-analysis.yml/badge.svg)](https://github.com/gammadev-y/agora_kritis/actions/workflows/kritis-analysis.yml)
+[![Kritis V4.0 Analysis](https://github.com/gammadev-y/agora_kritis/actions/workflows/kritis-analysis.yml/badge.svg)](https://github.com/gammadev-y/agora_kritis/actions/workflows/kritis-analysis.yml)
 
-Kritis 4.0 is an advanced AI-powered legal document analysis system that transforms complex legal texts into clear, understandable summaries. Built for the Agora platform, it provides intelligent extraction, analysis, and knowledge graph generation for Portuguese legal documents.
+Kritis V4.0 is the final definitive AI-powered legal document analysis system implementing PROD10 specifications with enhanced date intelligence. Built for the Agora platform, it provides intelligent extraction, analysis, synthesis, and knowledge ingestion for Portuguese legal documents with perfected AI persona and structured output.
 
 ## ✨ Features
 
-### 🎯 **Kritis 4.0 Enhanced Pipeline**
-- **Stage 1**: Enhanced Metadata Extraction with Portuguese date patterns
-- **Stage 2**: Contextual Analysis with robust batch processing and retry logic
-- **Stage 3**: Intelligent Knowledge Graph with enhanced tagging and cross-references
+### 🎯 **Kritis V4.0 PROD10 Pipeline**
+- **Stage 1**: Enhanced Extraction with preamble awareness and article detection
+- **Stage 2**: Definitive Analysis with V4.2 prompts and organized tag categories
+- **Stage 3**: Final Summary Synthesis with automatic category suggestions
+- **Stage 4**: Definitive Law Ingestion with intelligent date extraction
 
-### 🤖 **AI-Powered Analysis**
-- **Conversational Style**: Plain language summaries that anyone can understand
-- **Intelligent Tagging**: Automatic categorization and entity extraction
-- **Cross-Reference Detection**: Links between related legal documents
-- **Robust Error Handling**: 3-tier retry strategy for reliable processing
+### 🤖 **Perfected AI Persona (V4.2)**
+- **Style Guide**: Plain language, no intros, helpful tone
+- **Tag Organization**: Structured categories (persons/organizations/concepts)
+- **Date Intelligence**: Article-specific effective dates and expiry dates
+- **Cross-References**: Relationship type classification (MODIFIES, REFERENCES, etc.)
 
 ### 🏗️ **Production Features**
-- **GitHub Actions Integration**: Automated workflows for scalable processing
-- **Environment Configuration**: Secure secrets management
-- **Comprehensive Logging**: Detailed analysis tracking and reporting
-- **UUID Validation**: Input sanitization and validation
+- **Dual Pipeline Support**: V4.0 (PROD10) and V3.1 (PROD9) implementations
+- **Date Enhancement**: Smart article validity period handling
+- **GitHub Actions Integration**: Updated workflows for V4.0 commands
+- **Comprehensive Validation**: Production readiness and environment checks
+- **Error Resilience**: Enhanced fallback mechanisms and retry logic
 
 ## 🚀 Quick Start
 
@@ -33,19 +35,25 @@ Kritis 4.0 is an advanced AI-powered legal document analysis system that transfo
    - `SUPABASE_ANON_KEY`: Anonymous key for public access
    - `GEMINI_API_KEY`: Google Gemini API key for AI analysis
 
-2. **Run Analysis**:
+2. **Run V4.0 PROD10 Analysis**:
    - Go to **Actions** tab in your repository
-   - Select **"🧠 Kritis 4.0 - AI Legal Document Analysis"**
+   - Select **"🧠 Kritis V4.0 - PROD10 Final AI Legal Document Analysis"**
    - Click **"Run workflow"**
    - Enter your Source ID (UUID format)
-   - Select pipeline stage (or "full-pipeline" for complete analysis)
+   - Select pipeline stage:
+     - `v40-complete`: Full PROD10 pipeline with date intelligence
+     - `v40-extract`: Enhanced extraction only
+     - `v40-analyze`: Definitive analysis with V4.2 prompts
+     - `v40-synthesize`: Final summary synthesis
+     - `v40-ingest`: Definitive law ingestion
+     - `v31-complete`: Legacy PROD9 pipeline
 
 ### Local Development
 
 1. **Clone the Repository**:
    ```bash
    git clone https://github.com/gammadev-y/agora_kritis.git
-   cd agora_kritis
+   cd agora_kritis/agora-analyst-python
    ```
 
 2. **Set up Environment**:
