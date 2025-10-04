@@ -157,119 +157,195 @@ Examples:
         'ingest-law',
         help='Kritis 1.0 Stage 3: Create structured law records from analysis'
     )
+        help='UUID of the source document to ingest as law'
+    )
     
     # Kritis 2.0 Commands
     v2_stage1_parser = subparsers.add_parser(
         'extract-metadata',
         help='Kritis 2.0 Stage 1-2: Extract core metadata from first chunk'
     )
+    v2_stage1_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to extract metadata from'
+    )
     
     v2_stage2_parser = subparsers.add_parser(
         'analyze-enhanced',
         help='Kritis 2.0 Stage 3: Enhanced structured analysis with categories and entities'
+    )
+    v2_stage2_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to analyze'
     )
     
     v2_stage3_parser = subparsers.add_parser(
         'build-knowledge-graph',
         help='Kritis 2.0 Stage 4: Build knowledge graph with tagging and relationships'
     )
-    
+    v2_stage3_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to build knowledge graph from'
+    )
     
     # Kritis 3.0 Commands - Multi-Article Processing
     v3_stage1_parser = subparsers.add_parser(
         'parse-articles',
         help='Kritis 3.0 Stage 1: Parse and separate multiple articles from chunks'
     )
-    
+    v3_stage1_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to parse articles from'
+    )
     
     v3_stage2_parser = subparsers.add_parser(
         'batch-analyze',
         help='Kritis 3.0 Stage 2: Batch analysis of multiple articles with smart token management'
     )
-    
+    v3_stage2_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to batch analyze'
+    )
     
     v3_stage3_parser = subparsers.add_parser(
         'build-multi-article-graph',
         help='Kritis 3.0 Stage 3: Build knowledge graph with multiple articles and enhanced relationships'
     )
-    
+    v3_stage3_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to build multi-article knowledge graph from'
+    )
     
     # Kritis 4.0 Commands - Enhanced Analysis with Preamble and Intelligent Tagging
     v4_stage1_parser = subparsers.add_parser(
         'enhanced-extract',
         help='Kritis 4.0 Stage 1: Enhanced extractor with preamble separation and article parsing'
     )
-    
+    v4_stage1_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to parse with preamble extraction'
+    )
     
     v4_stage2_parser = subparsers.add_parser(
         'enhanced-analyze-context',
         help='Kritis 4.0 Stage 2: Enhanced analysis with preamble context and enriched entity extraction'
     )
-    
+    v4_stage2_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to analyze with enhanced context'
+    )
     
     v4_stage3_parser = subparsers.add_parser(
         'intelligent-graph',
         help='Kritis 4.0 Stage 3: Intelligent knowledge graph with enhanced tagging and preamble integration'
     )
-    
+    v4_stage3_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to build intelligent knowledge graph from'
+    )
     
     # Kritis V3.1 Commands - PROD9 Refactored Pipeline
     v31_stage1_parser = subparsers.add_parser(
         'v31-extract',
         help='Kritis V3.1 Stage 1: PROD9 enhanced extractor with preamble separation'
     )
-    
+    v31_stage1_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to extract with PROD9 specifications'
+    )
     
     v31_stage2_parser = subparsers.add_parser(
         'v31-analyze',
         help='Kritis V3.1 Stage 2: PROD9 enhanced analyst with structured tags'
     )
-    
+    v31_stage2_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to analyze with PROD9 specifications'
+    )
     
     v31_stage3_parser = subparsers.add_parser(
         'v31-ingest',
         help='Kritis V3.1 Stage 3: PROD9 simplified schema law ingestion'
     )
-    
+    v31_stage3_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to ingest with PROD9 specifications'
+    )
     
     # Kritis V3.1 Complete Pipeline Command
     v31_complete_parser = subparsers.add_parser(
         'v31-complete',
         help='Kritis V3.1 Complete Pipeline: Run all PROD9 stages (extract -> analyze -> ingest)'
     )
-    
+    v31_complete_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to process with complete PROD9 pipeline'
+    )
     
     # Kritis V4.0 Commands - PROD10 Final Definitive Pipeline
     v40_stage1_parser = subparsers.add_parser(
         'v40-extract',
         help='Kritis V4.0 Stage 1: PROD10 enhanced extractor (refined from V3.1)'
     )
-    
+    v40_stage1_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to extract with PROD10 specifications'
+    )
     
     v40_stage2_parser = subparsers.add_parser(
         'v40-analyze',
         help='Kritis V4.0 Stage 2: PROD10 definitive analyst with V4.2 prompts'
     )
-    
+    v40_stage2_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to analyze with PROD10 V4.2 prompts'
+    )
     
     v40_stage3_parser = subparsers.add_parser(
         'v40-synthesize',
         help='Kritis V4.0 Stage 3: PROD10 final summary synthesis with category suggestions'
     )
-    
+    v40_stage3_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to synthesize with PROD10 specifications'
+    )
     
     v40_stage4_parser = subparsers.add_parser(
         'v40-ingest',
         help='Kritis V4.0 Stage 4: PROD10 definitive law ingestion with cross-references'
     )
-    
+    v40_stage4_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to ingest with PROD10 specifications'
+    )
     
     # Kritis V4.0 Complete Pipeline Command
     v40_complete_parser = subparsers.add_parser(
         'v40-complete',
         help='Kritis V4.0 Complete Pipeline: Run all PROD10 stages (extract -> analyze -> synthesize -> ingest)'
     )
-    
+    v40_complete_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to process with complete PROD10 pipeline'
+    )
     
     args = parser.parse_args()
     
