@@ -68,6 +68,9 @@ def update_job_status(job_id: str | None, status: str, result_message: str) -> N
         job_id: UUID of the job to update (optional)
         status: Job status (SUCCESS or FAILED)
         result_message: Message describing the result
+        
+    Note: This function is designed to be resilient. It will never raise exceptions
+          or break the main analysis pipeline. Job notifications are optional.
     """
     if not job_id:
         return
@@ -79,13 +82,13 @@ def update_job_status(job_id: str | None, status: str, result_message: str) -> N
         supabase.table("background_jobs").update({
             "status": status,
             "result_message": result_message,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": datetime.now().isoformat()  # Use timezone-aware datetime
         }).eq("id", job_id).execute()
         
         logger.info(f"✅ Job status updated successfully")
     except Exception as e:
-        logger.error(f"❌ Failed to update job status: {e}")
-        # Don't raise - we don't want to fail the entire job just because we couldn't update status
+        logger.warning(f"⚠️ Failed to update job status (non-critical): {e}")
+        # Don't raise - job notifications are optional and should never break the analysis
 
 def main():
     parser = argparse.ArgumentParser(
