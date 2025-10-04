@@ -101,12 +101,12 @@ jobs:
           echo "   - Stage 3: Final Summary Synthesis with category suggestions"
           echo "   - Stage 4: Definitive Law Ingestion with date intelligence"
           
-          python main.py v40-complete $CMD_ARGS
+          python main.py $CMD_ARGS v40-complete
           echo "✅ Complete V4.0 PROD10 pipeline finished successfully!"
           
         elif [ "$PIPELINE_STAGE" = "v31-complete" ]; then
           echo "🔄 Running Complete Kritis V3.1 PROD9 Pipeline"
-          python main.py v31-complete $CMD_ARGS
+          python main.py $CMD_ARGS v31-complete
           echo "✅ Complete V3.1 PROD9 pipeline finished successfully!"
           
         elif [ "$PIPELINE_STAGE" = "validate-environment" ]; then
@@ -116,7 +116,7 @@ jobs:
           
         else
           echo "🔄 Running Single Stage: $PIPELINE_STAGE"
-          python main.py "$PIPELINE_STAGE" $CMD_ARGS
+          python main.py $CMD_ARGS "$PIPELINE_STAGE"
           echo "✅ Stage completed successfully!"
         fi
         
