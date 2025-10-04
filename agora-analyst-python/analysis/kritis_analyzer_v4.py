@@ -57,6 +57,20 @@ class KritisAnalyzerV4:
         """
         logger.info(f"🏛️ Kritis 4.0 Stage 1: Enhanced Extractor with Preamble for source {source_id}")
         
+        # Get source record with translations (header data from crawler)
+        source_response = self.supabase_admin.table('sources').select('id, slug, type_id, translations').eq('id', source_id).execute()
+        if not source_response.data:
+            raise ValueError(f"Source {source_id} not found")
+        
+        source_record = source_response.data[0]
+        source_translations = source_record.get('translations', {})
+        source_type_id = source_record.get('type_id')
+        
+        logger.info(f"📋 Source translations found: {bool(source_translations)}")
+        if source_translations:
+            pt_title = source_translations.get('pt', {}).get('title', '')
+            logger.info(f"📄 Source title (PT): {pt_title[:100]}")
+        
         # Get all chunks for the source
         chunks_response = self.supabase_admin.table('document_chunks').select('*').eq('source_id', source_id).order('chunk_index').execute()
         chunks = chunks_response.data or []
@@ -71,8 +85,8 @@ class KritisAnalyzerV4:
         for chunk in chunks:
             all_content += chunk['content'] + "\n\n"
         
-        # Extract metadata from first chunk
-        metadata = self._extract_metadata_from_content(chunks[0]['content'])
+        # Extract metadata from first chunk, enhanced with source translations
+        metadata = self._extract_metadata_from_content(chunks[0]['content'], source_translations, source_type_id)
         
         # Parse preamble and articles from complete content
         preamble_data = self._parse_preamble_and_articles(all_content)
@@ -117,24 +131,52 @@ class KritisAnalyzerV4:
             'has_preamble': has_preamble
         }
     
-    def _extract_metadata_from_content(self, content: str) -> Dict:
-        """Extract document metadata from content (from Kritis 3.0)."""
+    def _extract_metadata_from_content(self, content: str, source_translations: Optional[Dict] = None, source_type_id: Optional[str] = None) -> Dict:
+        """Extract document metadata from content, enhanced with source translations."""
+        
+        # Prepare context hints from source translations
+        context_hints = ""
+        official_title_hint = ""
+        
+        if source_translations:
+            pt_data = source_translations.get('pt', {})
+            official_title_hint = pt_data.get('title', '')
+            
+            if official_title_hint:
+                context_hints = f"""
+
+IMPORTANT CONTEXT FROM SOURCE METADATA:
+- The official title from the document header is: "{official_title_hint}"
+- This title should be used as the primary reference for official_title_pt
+- Use this to determine the correct official_number and law_type_id"""
+        
+        # Add constitutional document detection
+        type_hint = ""
+        if source_type_id == "OFFICIAL_PUBLICATION" and official_title_hint:
+            if any(keyword in official_title_hint.lower() for keyword in ['constituição', 'constitution', 'crp']):
+                type_hint = "\n- DETECTED: This is a CONSTITUTIONAL document. Set law_type_id to 'CONSTITUTION'"
         
         extractor_prompt = f"""You are a meticulous legal document parser. Analyze the following text, which is the beginning of an official government publication. Your task is to extract the core metadata. Return a single, valid JSON object with the following structure. Do not include any other text in your response.
 
 {{
-  "official_number": "The official number of this law (e.g., 'Decreto-Lei n.º 30/2017').",
+  "official_number": "The official number of this law (e.g., 'Decreto-Lei n.º 30/2017', or 'CRP' for Constitution).",
   "official_title_pt": "The full, official title in Portuguese.",
-  "law_type_id": "The ID of the law type based on the title (e.g., 'DECRETO_LEI').",
+  "law_type_id": "The ID of the law type based on the title (e.g., 'DECRETO_LEI', 'CONSTITUTION').",
   "enactment_date": "The primary date of the law in YYYY-MM-DD format. Look carefully in the document for publication dates, enactment dates, or dates mentioned in the context.",
   "summary_pt": "The text from the 'SUMÁRIO' section."
-}}
+}}{context_hints}{type_hint}
 
 IMPORTANT: Pay special attention to finding the correct enactment/publication date. Look for patterns like:
 - "de 27 de Maio de 1969"
 - "publicado em..."
 - "datado de..."
 - Any date references in the beginning or end of the document
+
+For constitutional documents:
+- Use "CRP" or similar abbreviation as official_number
+- Set law_type_id to "CONSTITUTION"
+- Look for dates like "2 de abril de 1976" (original constitution) or revision dates
+- If no date is found in the text, use "1976-04-02" (original Portuguese Constitution date) as a reasonable default
 
 TEXT TO ANALYZE:
 {content[:8000]}"""
@@ -151,6 +193,30 @@ TEXT TO ANALYZE:
             
             metadata = json.loads(json_text)
             
+            # Override with source translations if official_title_pt is missing or generic
+            if source_translations:
+                pt_data = source_translations.get('pt', {})
+                source_title = pt_data.get('title', '')
+                
+                # Use source title if it's more complete than AI-extracted title
+                if source_title and (not metadata.get('official_title_pt') or 
+                                    len(source_title) > len(metadata.get('official_title_pt', ''))):
+                    logger.info(f"✨ Using source translation title: {source_title[:80]}")
+                    metadata['official_title_pt'] = source_title
+                    
+                    # Re-detect official_number and law_type from enhanced title
+                    if 'constituição' in source_title.lower() or 'crp' in source_title.lower():
+                        if not metadata.get('official_number') or metadata['official_number'].startswith('AUTO-'):
+                            metadata['official_number'] = 'CRP'
+                        metadata['law_type_id'] = 'CONSTITUTION'
+                        
+                        # Set default constitution date if not found
+                        if not metadata.get('enactment_date') or metadata['enactment_date'] == datetime.now().date().isoformat():
+                            metadata['enactment_date'] = '1976-04-02'  # Portuguese Constitution original date
+                            logger.info("📅 Using default Portuguese Constitution date: 1976-04-02")
+                        
+                        logger.info("🏛️ Detected CONSTITUTION from source title")
+            
             # Fix law type mapping to valid database values
             law_type_mapping = {
                 "DECRETO_PRESIDENTE_REPUBLICA": "DECRETO_PR",
@@ -158,7 +224,8 @@ TEXT TO ANALYZE:
                 "LEI": "LEI",
                 "RESOLUCAO": "RESOLUCAO",
                 "PORTARIA": "PORTARIA",
-                "DESPACHO": "DESPACHO"
+                "DESPACHO": "DESPACHO",
+                "CONSTITUTION": "CONSTITUTION"
             }
             
             if 'law_type_id' in metadata and metadata['law_type_id'] in law_type_mapping:
@@ -170,10 +237,23 @@ TEXT TO ANALYZE:
             
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Invalid JSON response from metadata extractor: {e}")
+            
+            # Try to use source translations in fallback
+            fallback_title = "Documento Legal"
+            fallback_type = "DECRETO_LEI"
+            
+            if source_translations:
+                pt_data = source_translations.get('pt', {})
+                source_title = pt_data.get('title', '')
+                if source_title:
+                    fallback_title = source_title
+                    if 'constituição' in source_title.lower() or 'crp' in source_title.lower():
+                        fallback_type = 'CONSTITUTION'
+            
             return {
                 "official_number": f"AUTO-{int(time.time())}",
-                "official_title_pt": "Documento Legal",
-                "law_type_id": "DECRETO_LEI",
+                "official_title_pt": fallback_title,
+                "law_type_id": fallback_type,
                 "enactment_date": datetime.now().date().isoformat(),
                 "summary_pt": "Análise não disponível"
             }
