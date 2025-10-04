@@ -7,6 +7,10 @@ on:
         description: 'Source ID to analyze (UUID format)'
         required: true
         type: string
+      job_id:
+        description: 'Background Job ID for status tracking (optional, UUID format)'
+        required: false
+        type: string
       pipeline_stage:
         description: 'Pipeline stage to run'
         required: true
@@ -73,7 +77,15 @@ jobs:
         cd agora-analyst-python
         
         SOURCE_ID="${{ github.event.inputs.source_id }}"
+        JOB_ID="${{ github.event.inputs.job_id }}"
         PIPELINE_STAGE="${{ github.event.inputs.pipeline_stage }}"
+        
+        # Build command with optional job_id
+        CMD_ARGS="--source-id $SOURCE_ID"
+        if [ -n "$JOB_ID" ]; then
+          CMD_ARGS="$CMD_ARGS --job-id $JOB_ID"
+          echo "📌 Background Job ID: $JOB_ID"
+        fi
         
         echo "🚀 Starting Kritis V4.0 PROD10 Analysis for Source: $SOURCE_ID"
         echo "📋 Pipeline Stage: $PIPELINE_STAGE"
@@ -89,12 +101,12 @@ jobs:
           echo "   - Stage 3: Final Summary Synthesis with category suggestions"
           echo "   - Stage 4: Definitive Law Ingestion with date intelligence"
           
-          python main.py v40-complete --source-id "$SOURCE_ID"
+          python main.py v40-complete $CMD_ARGS
           echo "✅ Complete V4.0 PROD10 pipeline finished successfully!"
           
         elif [ "$PIPELINE_STAGE" = "v31-complete" ]; then
           echo "🔄 Running Complete Kritis V3.1 PROD9 Pipeline"
-          python main.py v31-complete --source-id "$SOURCE_ID"
+          python main.py v31-complete $CMD_ARGS
           echo "✅ Complete V3.1 PROD9 pipeline finished successfully!"
           
         elif [ "$PIPELINE_STAGE" = "validate-environment" ]; then
@@ -104,7 +116,7 @@ jobs:
           
         else
           echo "🔄 Running Single Stage: $PIPELINE_STAGE"
-          python main.py "$PIPELINE_STAGE" --source-id "$SOURCE_ID"
+          python main.py "$PIPELINE_STAGE" $CMD_ARGS
           echo "✅ Stage completed successfully!"
         fi
         
