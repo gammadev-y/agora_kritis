@@ -11,6 +11,7 @@ import logging
 import sys
 import os
 import uuid
+from datetime import datetime
 from analysis.document_analyzer import DocumentAnalyzer
 from analysis.kritis_analyzer import KritisAnalyzer
 from analysis.kritis_analyzer_v2 import KritisAnalyzerV2
@@ -18,6 +19,7 @@ from analysis.kritis_analyzer_v3 import KritisAnalyzerV3
 from analysis.kritis_analyzer_v4 import KritisAnalyzerV4
 from analysis.kritis_analyzer_v31 import KritisAnalyzerV31
 from analysis.kritis_analyzer_v40 import KritisAnalyzerV40
+from lib.supabase_client import get_supabase_admin_client
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -58,6 +60,33 @@ def validate_environment() -> bool:
     logger.info("✅ Environment validation passed")
     return True
 
+def update_job_status(job_id: str | None, status: str, result_message: str) -> None:
+    """
+    Update the status of a background job in the database.
+    
+    Args:
+        job_id: UUID of the job to update (optional)
+        status: Job status (SUCCESS or FAILED)
+        result_message: Message describing the result
+    """
+    if not job_id:
+        return
+    
+    try:
+        logger.info(f"📝 Updating job {job_id} to status: {status}")
+        supabase = get_supabase_admin_client()
+        
+        supabase.table("background_jobs").update({
+            "status": status,
+            "result_message": result_message,
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("id", job_id).execute()
+        
+        logger.info(f"✅ Job status updated successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to update job status: {e}")
+        # Don't raise - we don't want to fail the entire job just because we couldn't update status
+
 def main():
     parser = argparse.ArgumentParser(
         description='Agora Analyst - AI Analysis Service for Legal Documents',
@@ -86,7 +115,17 @@ Examples:
   python main.py enhanced-extract --source-id 12345678-1234-1234-1234-123456789abc
   python main.py enhanced-analyze-context --source-id 12345678-1234-1234-1234-123456789abc
   python main.py intelligent-graph --source-id 12345678-1234-1234-1234-123456789abc
+  
+  # Background job notification (optional)
+  python main.py v40-complete --source-id ... --job-id 12345678-1234-1234-1234-123456789abc
         """
+    )
+    
+    # Add global --job-id argument for background job tracking
+    parser.add_argument(
+        '--job-id',
+        required=False,
+        help='Optional: UUID of the background job for status tracking'
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -334,6 +373,11 @@ Examples:
     if not hasattr(args, 'source_id') or not args.source_id or not validate_uuid(args.source_id):
         logger.error(f"❌ Invalid source ID format. Expected UUID, got: {getattr(args, 'source_id', 'None')}")
         sys.exit(1)
+    
+    # Get job_id if provided for background job tracking
+    job_id = getattr(args, 'job_id', None)
+    if job_id:
+        logger.info(f"📌 Background job ID: {job_id}")
     
     logger.info(f"🚀 Starting Kritis Analysis for Source ID: {args.source_id}")
     logger.info(f"📋 Command: {args.command}")
@@ -621,6 +665,11 @@ Examples:
             
     except KeyboardInterrupt:
         logger.warning("⚠️ Analysis interrupted by user")
+        update_job_status(
+            job_id=job_id,
+            status="FAILED",
+            result_message="Analysis interrupted by user"
+        )
         sys.exit(130)
     except Exception as e:
         logger.error(f"❌ Command failed: {e}")
@@ -631,7 +680,21 @@ Examples:
         if log_level == 'DEBUG':
             import traceback
             logger.debug(f"Full traceback:\n{traceback.format_exc()}")
+        
+        # Update job status on error
+        update_job_status(
+            job_id=job_id,
+            status="FAILED",
+            result_message=f"Error: {str(e)}"
+        )
         sys.exit(1)
+    else:
+        # Update job status on success
+        update_job_status(
+            job_id=job_id,
+            status="SUCCESS",
+            result_message=f"Successfully completed {args.command} for source {args.source_id}"
+        )
     
     logger.info("🎉 Analysis completed successfully!")
 
