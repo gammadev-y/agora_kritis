@@ -16,6 +16,7 @@ from analysis.kritis_analyzer import KritisAnalyzer
 from analysis.kritis_analyzer_v2 import KritisAnalyzerV2
 from analysis.kritis_analyzer_v3 import KritisAnalyzerV3
 from analysis.kritis_analyzer_v4 import KritisAnalyzerV4
+from analysis.kritis_analyzer_v31 import KritisAnalyzerV31
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -224,6 +225,48 @@ Examples:
         help='UUID of the source document to build intelligent knowledge graph from'
     )
     
+    # Kritis V3.1 Commands - PROD9 Refactored Pipeline
+    v31_stage1_parser = subparsers.add_parser(
+        'v31-extract',
+        help='Kritis V3.1 Stage 1: PROD9 enhanced extractor with preamble separation'
+    )
+    v31_stage1_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to extract with PROD9 specifications'
+    )
+    
+    v31_stage2_parser = subparsers.add_parser(
+        'v31-analyze',
+        help='Kritis V3.1 Stage 2: PROD9 enhanced analyst with structured tags'
+    )
+    v31_stage2_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to analyze with PROD9 specifications'
+    )
+    
+    v31_stage3_parser = subparsers.add_parser(
+        'v31-ingest',
+        help='Kritis V3.1 Stage 3: PROD9 simplified schema law ingestion'
+    )
+    v31_stage3_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to ingest with PROD9 specifications'
+    )
+    
+    # Kritis V3.1 Complete Pipeline Command
+    v31_complete_parser = subparsers.add_parser(
+        'v31-complete',
+        help='Kritis V3.1 Complete Pipeline: Run all PROD9 stages (extract -> analyze -> ingest)'
+    )
+    v31_complete_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to process with complete PROD9 pipeline'
+    )
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -387,6 +430,74 @@ Examples:
             logger.info(f"🎯 Kritis 4.0 Stage 3 completed successfully")
             logger.info(f"📚 Law created with intelligent knowledge graph and enhanced tagging: {law_id}")
             logger.info("✅ Full Kritis 4.0 Enhanced Pipeline completed!")
+            
+        elif args.command == 'v31-extract':
+            # Kritis V3.1 Stage 1: PROD9 Enhanced Extractor
+            logger.info("🚀 Using Kritis V3.1 PROD9 Refactored Pipeline")
+            kritis_v31 = KritisAnalyzerV31()
+            result = kritis_v31.run_enhanced_extractor_phase(args.source_id)
+            logger.info("🎯 Kritis V3.1 Stage 1 completed successfully")
+            logger.info(f"📄 PROD9 Extraction Results:")
+            logger.info(f"Total Articles Found: {result['total_articles']}")
+            logger.info(f"Has Preamble: {'Yes' if result['has_preamble'] else 'No'}")
+            if result['metadata']:
+                logger.info(f"Official Number: {result['metadata'].get('official_number', 'N/A')}")
+                logger.info(f"Title: {result['metadata'].get('official_title', 'N/A')}")
+                logger.info(f"Type: {result['metadata'].get('law_type_id', 'N/A')}")
+                logger.info(f"Date: {result['metadata'].get('enactment_date', 'N/A')}")
+            logger.info("📋 Next step: python main.py v31-analyze --source-id " + args.source_id)
+            
+        elif args.command == 'v31-analyze':
+            # Kritis V3.1 Stage 2: PROD9 Enhanced Analyst
+            kritis_v31 = KritisAnalyzerV31()
+            result = kritis_v31.run_enhanced_analyst_phase(args.source_id)
+            logger.info("🎯 Kritis V3.1 Stage 2 completed successfully")
+            logger.info(f"📊 PROD9 Analysis Results:")
+            logger.info(f"Items Analyzed: {result['total_items_analyzed']}")
+            logger.info(f"Successful Analyses: {result['successful_analyses']}")
+            logger.info(f"Completion Rate: {result['completion_rate']:.1f}%")
+            
+            if result['successful_analyses'] < result['total_items_analyzed']:
+                failed = result['total_items_analyzed'] - result['successful_analyses']
+                logger.warning(f"⚠️ {failed} items had analysis errors and will use fallback data")
+            
+            logger.info("📋 Next step: python main.py v31-ingest --source-id " + args.source_id)
+            
+        elif args.command == 'v31-ingest':
+            # Kritis V3.1 Stage 3: PROD9 Law Ingestion
+            kritis_v31 = KritisAnalyzerV31()
+            law_id = kritis_v31.run_enhanced_law_ingestion(args.source_id)
+            logger.info(f"🎯 Kritis V3.1 Stage 3 completed successfully")
+            logger.info(f"📚 Law created with PROD9 simplified schema: {law_id}")
+            logger.info("✅ Full Kritis V3.1 PROD9 Pipeline completed!")
+            
+        elif args.command == 'v31-complete':
+            # Kritis V3.1 Complete Pipeline: All stages in sequence
+            logger.info("🚀 Starting Kritis V3.1 Complete PROD9 Pipeline")
+            kritis_v31 = KritisAnalyzerV31()
+            
+            # Stage 1: Extract
+            logger.info("📋 Stage 1/3: Enhanced Extraction...")
+            extract_result = kritis_v31.run_enhanced_extractor_phase(args.source_id)
+            logger.info(f"✅ Stage 1 complete: {extract_result['total_articles']} articles, preamble: {extract_result['has_preamble']}")
+            
+            # Stage 2: Analyze
+            logger.info("📋 Stage 2/3: Enhanced Analysis...")
+            analyze_result = kritis_v31.run_enhanced_analyst_phase(args.source_id)
+            logger.info(f"✅ Stage 2 complete: {analyze_result['successful_analyses']}/{analyze_result['total_items_analyzed']} items analyzed ({analyze_result['completion_rate']:.1f}%)")
+            
+            # Stage 3: Ingest
+            logger.info("📋 Stage 3/3: Law Ingestion...")
+            law_id = kritis_v31.run_enhanced_law_ingestion(args.source_id)
+            logger.info(f"✅ Stage 3 complete: Law created {law_id}")
+            
+            logger.info("🎉 Complete Kritis V3.1 PROD9 Pipeline finished successfully!")
+            logger.info(f"📚 Final Law ID: {law_id}")
+            logger.info("🔗 The law follows the PROD9 simplified schema:")
+            logger.info("   - Direct laws -> law_article_versions relationship")
+            logger.info("   - Preamble stored as article_order = 0")
+            logger.info("   - JSONB tags on both laws and versions tables")
+            logger.info("   - Enhanced structured analysis with cross-references")
             
     except KeyboardInterrupt:
         logger.warning("⚠️ Analysis interrupted by user")
