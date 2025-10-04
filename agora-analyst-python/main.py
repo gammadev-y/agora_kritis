@@ -17,6 +17,7 @@ from analysis.kritis_analyzer_v2 import KritisAnalyzerV2
 from analysis.kritis_analyzer_v3 import KritisAnalyzerV3
 from analysis.kritis_analyzer_v4 import KritisAnalyzerV4
 from analysis.kritis_analyzer_v31 import KritisAnalyzerV31
+from analysis.kritis_analyzer_v40 import KritisAnalyzerV40
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -267,6 +268,58 @@ Examples:
         help='UUID of the source document to process with complete PROD9 pipeline'
     )
     
+    # Kritis V4.0 Commands - PROD10 Final Definitive Pipeline
+    v40_stage1_parser = subparsers.add_parser(
+        'v40-extract',
+        help='Kritis V4.0 Stage 1: PROD10 enhanced extractor (refined from V3.1)'
+    )
+    v40_stage1_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to extract with PROD10 specifications'
+    )
+    
+    v40_stage2_parser = subparsers.add_parser(
+        'v40-analyze',
+        help='Kritis V4.0 Stage 2: PROD10 definitive analyst with V4.2 prompts'
+    )
+    v40_stage2_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to analyze with PROD10 V4.2 prompts'
+    )
+    
+    v40_stage3_parser = subparsers.add_parser(
+        'v40-synthesize',
+        help='Kritis V4.0 Stage 3: PROD10 final summary synthesis with category suggestions'
+    )
+    v40_stage3_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to synthesize with PROD10 specifications'
+    )
+    
+    v40_stage4_parser = subparsers.add_parser(
+        'v40-ingest',
+        help='Kritis V4.0 Stage 4: PROD10 definitive law ingestion with cross-references'
+    )
+    v40_stage4_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to ingest with PROD10 specifications'
+    )
+    
+    # Kritis V4.0 Complete Pipeline Command
+    v40_complete_parser = subparsers.add_parser(
+        'v40-complete',
+        help='Kritis V4.0 Complete Pipeline: Run all PROD10 stages (extract -> analyze -> synthesize -> ingest)'
+    )
+    v40_complete_parser.add_argument(
+        '--source-id',
+        required=True,
+        help='UUID of the source document to process with complete PROD10 pipeline'
+    )
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -498,6 +551,73 @@ Examples:
             logger.info("   - Preamble stored as article_order = 0")
             logger.info("   - JSONB tags on both laws and versions tables")
             logger.info("   - Enhanced structured analysis with cross-references")
+            
+        elif args.command == 'v40-extract':
+            # Kritis V4.0 Stage 1: PROD10 Enhanced Extractor
+            logger.info("🚀 Using Kritis V4.0 PROD10 Final Definitive Pipeline")
+            kritis_v40 = KritisAnalyzerV40()
+            result = kritis_v40.run_enhanced_extractor_phase(args.source_id)
+            logger.info("🎯 Kritis V4.0 Stage 1 completed successfully")
+            logger.info(f"📄 PROD10 Extraction Results:")
+            logger.info(f"Total Articles Found: {result['total_articles']}")
+            logger.info(f"Has Preamble: {'Yes' if result['has_preamble'] else 'No'}")
+            if result['metadata']:
+                logger.info(f"Official Number: {result['metadata'].get('official_number', 'N/A')}")
+                logger.info(f"Title: {result['metadata'].get('official_title', 'N/A')}")
+                logger.info(f"Type: {result['metadata'].get('law_type_id', 'N/A')}")
+                logger.info(f"Date: {result['metadata'].get('enactment_date', 'N/A')}")
+            logger.info("📋 Next step: python main.py v40-analyze --source-id " + args.source_id)
+            
+        elif args.command == 'v40-analyze':
+            # Kritis V4.0 Stage 2: PROD10 Definitive Analyst with V4.2 prompts
+            kritis_v40 = KritisAnalyzerV40()
+            result = kritis_v40.run_definitive_analyst_phase(args.source_id)
+            logger.info("🎯 Kritis V4.0 Stage 2 completed successfully")
+            logger.info(f"📊 PROD10 Analysis Results (V4.2 prompts):")
+            logger.info(f"Items Analyzed: {result['total_items_analyzed']}")
+            logger.info(f"Successful Analyses: {result['successful_analyses']}")
+            logger.info(f"Completion Rate: {result['completion_rate']:.1f}%")
+            
+            if result['successful_analyses'] < result['total_items_analyzed']:
+                failed = result['total_items_analyzed'] - result['successful_analyses']
+                logger.warning(f"⚠️ {failed} items had analysis errors and will use fallback data")
+            
+            logger.info("📋 Next step: python main.py v40-synthesize --source-id " + args.source_id)
+            
+        elif args.command == 'v40-synthesize':
+            # Kritis V4.0 Stage 3: PROD10 Final Summary Synthesis
+            kritis_v40 = KritisAnalyzerV40()
+            result = kritis_v40.run_final_synthesis_phase(args.source_id)
+            logger.info("🎯 Kritis V4.0 Stage 3 completed successfully")
+            logger.info(f"📝 PROD10 Synthesis Results:")
+            logger.info(f"Synthesis Completed: {'Yes' if result['synthesis_completed'] else 'No'}")
+            logger.info(f"Suggested Category: {result.get('suggested_category', 'Unknown')}")
+            logger.info(f"Summaries Processed: {result.get('summaries_processed', 0)}")
+            
+            logger.info("📋 Next step: python main.py v40-ingest --source-id " + args.source_id)
+            
+        elif args.command == 'v40-ingest':
+            # Kritis V4.0 Stage 4: PROD10 Definitive Law Ingestion
+            kritis_v40 = KritisAnalyzerV40()
+            law_id = kritis_v40.run_definitive_law_ingestion(args.source_id)
+            logger.info(f"🎯 Kritis V4.0 Stage 4 completed successfully")
+            logger.info(f"📚 Law created with PROD10 definitive specifications: {law_id}")
+            logger.info("✅ Full Kritis V4.0 PROD10 Pipeline completed!")
+            
+        elif args.command == 'v40-complete':
+            # Kritis V4.0 Complete Pipeline: All stages in sequence
+            logger.info("🚀 Starting Kritis V4.0 Complete PROD10 Pipeline")
+            kritis_v40 = KritisAnalyzerV40()
+            
+            law_id = kritis_v40.run_complete_v40_pipeline(args.source_id)
+            
+            logger.info("🎉 Complete Kritis V4.0 PROD10 Pipeline finished successfully!")
+            logger.info(f"📚 Final Law ID: {law_id}")
+            logger.info("🔗 The law follows the PROD10 definitive specifications:")
+            logger.info("   - Perfected AI persona with specific style guide")
+            logger.info("   - Enhanced tag structure with organized categories")
+            logger.info("   - Cross-reference processing with relationship types")
+            logger.info("   - Final summary synthesis with category suggestions")
             
     except KeyboardInterrupt:
         logger.warning("⚠️ Analysis interrupted by user")
