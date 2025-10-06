@@ -1,4 +1,4 @@
-name: 🧠 Kritis V4.0 - PROD10 Final AI Legal Document Analysis
+name: 🧠 Kritis Analysis - AI Legal Document Analysis (V5.0 Recommended)
 
 on:
   workflow_dispatch:
@@ -14,15 +14,18 @@ on:
       pipeline_stage:
         description: 'Pipeline stage to run'
         required: true
-        default: 'v40-complete'
+        default: 'v50-complete'
         type: choice
         options:
+          - 'v50-complete'
+          - 'v50-extract'
+          - 'v50-analyze'
+          - 'v50-build-graph'
           - 'v40-complete'
           - 'v40-extract'
           - 'v40-analyze'
           - 'v40-synthesize'
           - 'v40-ingest'
-          - 'v31-complete'
           - 'validate-environment'
 
 jobs:
@@ -71,7 +74,7 @@ jobs:
             sys.exit(1)
         "
         
-    - name: 🧠 Run Kritis V4.0 PROD10 Analysis Pipeline
+    - name: 🧠 Run Kritis Analysis Pipeline
       run: |
         set -e  # Exit on any error
         cd agora-analyst-python
@@ -87,14 +90,31 @@ jobs:
           echo "📌 Background Job ID: $JOB_ID"
         fi
         
-        echo "🚀 Starting Kritis V4.0 PROD10 Analysis for Source: $SOURCE_ID"
+        echo "🚀 Starting Kritis Analysis for Source: $SOURCE_ID"
         echo "📋 Pipeline Stage: $PIPELINE_STAGE"
         
         # Validate environment first
         echo "🔧 Validating production environment..."
         python validate_production.py
         
-        if [ "$PIPELINE_STAGE" = "v40-complete" ]; then
+        if [ "$PIPELINE_STAGE" = "v50-complete" ]; then
+          echo "🔄 Running Complete Kritis V5.0 Pipeline (RECOMMENDED)"
+          echo "   - Stage 1: Enhanced Extraction with HTML preservation"
+          echo "   - Stage 2: Enhanced Analysis with cross-reference extraction"
+          echo "   - Stage 3: Knowledge Graph Builder with relationship processing"
+          echo ""
+          echo "✨ V5.0 Features:"
+          echo "   - URL-based reference matching (priority 1)"
+          echo "   - Law-to-law relationships"
+          echo "   - Article-to-article relationships"
+          echo "   - Preamble cross-reference processing"
+          echo "   - Temporal consistency validation"
+          echo "   - Automatic status updates (superseded/revoked)"
+          
+          python main.py $CMD_ARGS v50-complete
+          echo "✅ Complete V5.0 pipeline finished successfully!"
+          
+        elif [ "$PIPELINE_STAGE" = "v40-complete" ]; then
           echo "🔄 Running Complete Kritis V4.0 PROD10 Pipeline"
           echo "   - Stage 1: Enhanced Extraction with preamble awareness"
           echo "   - Stage 2: Definitive Analysis with V4.2 prompts"
@@ -103,11 +123,6 @@ jobs:
           
           python main.py $CMD_ARGS v40-complete
           echo "✅ Complete V4.0 PROD10 pipeline finished successfully!"
-          
-        elif [ "$PIPELINE_STAGE" = "v31-complete" ]; then
-          echo "🔄 Running Complete Kritis V3.1 PROD9 Pipeline"
-          python main.py $CMD_ARGS v31-complete
-          echo "✅ Complete V3.1 PROD9 pipeline finished successfully!"
           
         elif [ "$PIPELINE_STAGE" = "validate-environment" ]; then
           echo "🔧 Running Environment Validation Only"
@@ -120,21 +135,35 @@ jobs:
           echo "✅ Stage completed successfully!"
         fi
         
-    - name: 📊 Generate PROD10 Analysis Report
+    - name: 📊 Generate Analysis Report
       if: always()
       run: |
-        echo "## 📊 Kritis V4.0 PROD10 Analysis Report" >> $GITHUB_STEP_SUMMARY
+        PIPELINE_STAGE="${{ github.event.inputs.pipeline_stage }}"
+        
+        echo "## 📊 Kritis Analysis Report" >> $GITHUB_STEP_SUMMARY
         echo "- **Source ID**: ${{ github.event.inputs.source_id }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Pipeline Stage**: ${{ github.event.inputs.pipeline_stage }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Pipeline Stage**: $PIPELINE_STAGE" >> $GITHUB_STEP_SUMMARY
         echo "- **Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
         echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Version**: Kritis V4.0 Final Definitive (PROD10)" >> $GITHUB_STEP_SUMMARY
-        echo "- **Features**: Date Intelligence, V4.2 Prompts, Category Suggestions" >> $GITHUB_STEP_SUMMARY
+        
+        # Determine version and features based on pipeline stage
+        if [[ "$PIPELINE_STAGE" == v50* ]]; then
+          echo "- **Version**: Kritis V5.0 Enhanced Relationships (RECOMMENDED)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Features**: URL-based matching, Law-to-law relationships, Article-to-article relationships, Preamble processing, Temporal validation" >> $GITHUB_STEP_SUMMARY
+        elif [[ "$PIPELINE_STAGE" == v40* ]]; then
+          echo "- **Version**: Kritis V4.0 Final Definitive (PROD10)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Features**: Date Intelligence, V4.2 Prompts, Category Suggestions" >> $GITHUB_STEP_SUMMARY
+        fi
         
         if [ "${{ job.status }}" = "success" ]; then
-          echo "✅ **Result**: PROD10 analysis completed successfully" >> $GITHUB_STEP_SUMMARY
-          echo "🎯 **Quality**: Enhanced AI persona with structured tag categories" >> $GITHUB_STEP_SUMMARY
-          echo "📅 **Innovation**: Intelligent article date extraction and validation" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Result**: Analysis completed successfully" >> $GITHUB_STEP_SUMMARY
+          if [[ "$PIPELINE_STAGE" == v50* ]]; then
+            echo "🔗 **Quality**: Enhanced relationship processing with URL-based matching" >> $GITHUB_STEP_SUMMARY
+            echo "📊 **Innovation**: Knowledge graph with law-to-law and article-to-article relationships" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "🎯 **Quality**: Enhanced AI persona with structured tag categories" >> $GITHUB_STEP_SUMMARY
+            echo "📅 **Innovation**: Intelligent article date extraction and validation" >> $GITHUB_STEP_SUMMARY
+          fi
         else
           echo "❌ **Result**: Analysis failed - check logs for details" >> $GITHUB_STEP_SUMMARY
           echo "🔧 **Troubleshooting**: Verify environment secrets and source ID format" >> $GITHUB_STEP_SUMMARY
