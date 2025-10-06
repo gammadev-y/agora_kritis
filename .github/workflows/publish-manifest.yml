@@ -1,0 +1,49 @@
+name: Publish Workflow Manifest
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      
+      - name: Install dependencies
+        run: |
+          cd agora-analyst-python
+          pip install -r requirements.txt
+      
+      - name: Generate Manifest File
+        run: |
+          cd agora-analyst-python
+          python main.py describe-workflows > workflow-manifest.json
+          
+      - name: Verify Manifest
+        run: |
+          cd agora-analyst-python
+          echo "Generated manifest:"
+          cat workflow-manifest.json
+          echo ""
+          echo "Validating JSON..."
+          python -m json.tool workflow-manifest.json > /dev/null && echo "✅ Valid JSON"
+      
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./agora-analyst-python
+          publish_branch: gh-pages
+          keep_files: false
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+          commit_message: 'Update workflow manifest'

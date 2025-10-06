@@ -1,0 +1,115 @@
+[
+  {
+    "id": "v40-complete",
+    "name": "Kritis V4.0 - Complete Pipeline (PROD10)",
+    "description": "Runs the complete V4.0 pipeline with all 4 stages: extraction, analysis, synthesis, and law ingestion. This is the production-ready PROD10 version.",
+    "stages": [
+      "extract",
+      "analyze",
+      "synthesize",
+      "ingest"
+    ],
+    "version": "4.0",
+    "status": "stable",
+    "recommended": false
+  },
+  {
+    "id": "v40-extract",
+    "name": "Kritis V4.0 - Extraction Only",
+    "description": "Runs only the PROD10 enhanced extraction stage. Extracts preamble and articles from legal documents.",
+    "stages": [
+      "extract"
+    ],
+    "version": "4.0",
+    "status": "stable",
+    "recommended": false
+  },
+  {
+    "id": "v40-analyze",
+    "name": "Kritis V4.0 - Analysis Only",
+    "description": "Runs only the PROD10 analysis stage with V4.2 prompts. Analyzes extracted content.",
+    "stages": [
+      "analyze"
+    ],
+    "version": "4.0",
+    "status": "stable",
+    "recommended": false
+  },
+  {
+    "id": "v40-synthesize",
+    "name": "Kritis V4.0 - Synthesis Only",
+    "description": "Runs only the PROD10 synthesis stage. Creates final summary and category suggestions.",
+    "stages": [
+      "synthesize"
+    ],
+    "version": "4.0",
+    "status": "stable",
+    "recommended": false
+  },
+  {
+    "id": "v40-ingest",
+    "name": "Kritis V4.0 - Ingestion Only",
+    "description": "Runs only the PROD10 law ingestion stage. Creates law records with cross-references.",
+    "stages": [
+      "ingest"
+    ],
+    "version": "4.0",
+    "status": "stable",
+    "recommended": false
+  },
+  {
+    "id": "v50-complete",
+    "name": "Kritis V5.0 - Complete Pipeline (Enhanced Relationships)",
+    "description": "Runs the complete V5.0 pipeline with enhanced relationship processing. Features URL-based reference matching, law-to-law and article-to-article relationships, temporal validation, and automatic status updates. RECOMMENDED for new documents.",
+    "stages": [
+      "extract",
+      "analyze",
+      "build-graph"
+    ],
+    "version": "5.0",
+    "status": "stable",
+    "recommended": true,
+    "features": [
+      "URL-based reference matching",
+      "Law-to-law relationships",
+      "Article-to-article relationships",
+      "Preamble cross-reference processing",
+      "Temporal consistency validation",
+      "Automatic status updates (superseded/revoked)",
+      "Conflict resolution with delete_law_and_children()"
+    ]
+  },
+  {
+    "id": "v50-extract",
+    "name": "Kritis V5.0 - Extraction Only",
+    "description": "Runs only the enhanced extraction stage with HTML preservation.",
+    "stages": [
+      "extract"
+    ],
+    "version": "5.0",
+    "status": "stable",
+    "recommended": false
+  },
+  {
+    "id": "v50-analyze",
+    "name": "Kritis V5.0 - Analysis Only",
+    "description": "Runs only the enhanced analysis stage with cross-reference extraction (URLs + article numbers).",
+    "stages": [
+      "analyze"
+    ],
+    "version": "5.0",
+    "status": "stable",
+    "recommended": false
+  },
+  {
+    "id": "v50-build-graph",
+    "name": "Kritis V5.0 - Knowledge Graph Builder Only",
+    "description": "Runs only the knowledge graph building stage with consistent relationship processing.",
+    "stages": [
+      "build-graph"
+    ],
+    "version": "5.0",
+    "status": "stable",
+    "recommended": false
+  }
+]

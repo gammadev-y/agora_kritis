@@ -387,3 +387,17 @@ BEGIN
     END LOOP;
 END;
 $$;
+
+-- SCRIPT 1C: CREATE RLS POLICIES FOR NOTIFICATION TABLES
+-- ====================================================================
+
+-- Policy for background_jobs: Users can only see jobs they triggered. Admins can see all.
+DROP POLICY IF EXISTS "Users can view their own jobs" ON agora.background_jobs;
+CREATE POLICY "Users can view their own jobs" ON agora.background_jobs
+    FOR SELECT USING (auth.uid() = triggered_by OR agora.is_agora_admin_or_moderator());
+-- NOTE: Write access is restricted to server_role or SECURITY DEFINER functions.
+
+-- Policy for notifications: Users can only manage their own notifications.
+DROP POLICY IF EXISTS "Users can manage their own notifications" ON agora.notifications;
+CREATE POLICY "Users can manage their own notifications" ON agora.notifications
+    FOR ALL USING (auth.uid() = user_id);

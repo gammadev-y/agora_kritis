@@ -16,7 +16,8 @@
 -- 14. krita_rag_retriever
 -- 15. get_sources_with_ingestion_status
 -- 16. get_filtered_laws_list
--- 17. get_law_details_by_slug_v2
+-- 18. handle_job_completion_notification
+-- 19. create_new_job
 
 CREATE OR REPLACE FUNCTION agora.get_source_entities_with_details()
 RETURNS TABLE (
@@ -734,17 +735,26 @@ $$ LANGUAGE plpgsql STABLE;
 
 COMMENT ON FUNCTION agora.get_sources_with_chunk_status() IS 'Returns all sources with their document chunk processing status.';
 
+
+-- ====================================================================
+-- STEP 2: CREATE THE CORRECTED, DEFINITIVE FUNCTION
+-- Description: This is the new V1, which correctly queries the
+--              'agora.law_articles' table (formerly 'law_article_versions').
+-- ====================================================================
+
 CREATE OR REPLACE FUNCTION agora.get_law_details_by_slug(p_law_slug text)
 RETURNS jsonb AS $$
 DECLARE
     result jsonb;
     v_law_id uuid;
 BEGIN
+    -- First, find the law ID from the provided slug
     SELECT id INTO v_law_id FROM agora.laws WHERE slug = p_law_slug;
     IF NOT FOUND THEN
         RETURN NULL;
     END IF;
 
+    -- Now, build the main JSON object
     SELECT
         jsonb_build_object(
             'id', l.id,
@@ -758,21 +768,24 @@ BEGIN
             'category', (SELECT lc.translations FROM agora.law_categories lc WHERE lc.id = l.category_id),
             'government_entity', (SELECT jsonb_build_object('id', ge.id, 'name', ge.name, 'slug', ge.slug) FROM agora.government_entities ge WHERE ge.id = l.government_entity_id),
 
+            -- THE FIX: This now correctly queries the 'law_articles' table (previously 'law_article_versions')
+            -- and selects all the correct, existing columns.
             'articles', (
                 SELECT COALESCE(jsonb_agg(
                     jsonb_build_object(
-                        'id', lav.id,
-                        'article_order', lav.article_order,
-                        'official_text', lav.official_text,
-                        'translations', lav.translations,
-                        'tags', lav.tags,
-                        'valid_from', lav.valid_from,
-                        'valid_to', lav.valid_to,
-                        'status', (SELECT lvs.translations FROM agora.law_version_statuses lvs WHERE lvs.id = lav.status_id)
-                    ) ORDER BY lav.article_order ASC
+                        'id', la.id,
+                        'article_order', la.article_order,
+                        'official_text', la.official_text,
+                        'translations', la.translations,
+                        'tags', la.tags,
+                        'cross_references', la.cross_references,
+                        'valid_from', la.valid_from,
+                        'valid_to', la.valid_to,
+                        'status', (SELECT lvs.translations FROM agora.law_version_statuses lvs WHERE lvs.id = la.status_id)
+                    ) ORDER BY la.article_order ASC
                 ), '[]'::jsonb)
-                FROM agora.law_article_versions lav
-                WHERE lav.law_id = v_law_id
+                FROM agora.law_articles la -- Correct table name
+                WHERE la.law_id = v_law_id
             )
         )
     INTO result
@@ -785,7 +798,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-COMMENT ON FUNCTION agora.get_law_details_by_slug(text) IS 'Returns a full, nested JSONB object for a single law by its SLUG, including all its article versions.';
+COMMENT ON FUNCTION agora.get_law_details_by_slug(text) IS 'V2.0: Returns a full, nested JSONB object for a single law by its SLUG, including all its articles from the refactored schema.';
 
 CREATE OR REPLACE FUNCTION agora.krita_rag_retriever(
     p_law_id uuid,
@@ -804,7 +817,7 @@ BEGIN
             lav.translations->'en'->>'informal_summary' AS content,
             (lav.summary_embedding <=> p_query_embedding)::float AS similarity_score
         FROM
-            agora.law_article_versions lav
+            agora.law_articles lav
         WHERE
             lav.law_id = p_law_id
         ORDER BY
@@ -948,54 +961,344 @@ $$ LANGUAGE plpgsql STABLE;
 COMMENT ON FUNCTION agora.get_filtered_laws_list(text, text[], text[], uuid, integer, integer) 
 IS 'Returns a paginated and filtered list of laws with their related entities';
 
-CREATE OR REPLACE FUNCTION agora.get_law_details_by_slug_v2(p_law_slug text)
-RETURNS jsonb AS $$
+-- SCRIPT 1B: CREATE HELPER FUNCTION AND TRIGGER
+-- ====================================================================
+
+-- Create a helper function to easily create a new job and return its ID.
+CREATE OR REPLACE FUNCTION agora.create_new_job(p_job_type text, p_payload jsonb)
+RETURNS uuid AS $$
 DECLARE
-    result jsonb;
-    v_law_id uuid;
+    new_job_id uuid;
 BEGIN
-    SELECT id INTO v_law_id FROM agora.laws WHERE slug = p_law_slug;
-    IF NOT FOUND THEN
-        RETURN NULL;
-    END IF;
-
-    SELECT
-        jsonb_build_object(
-            'id', l.id,
-            'slug', l.slug,
-            'official_number', l.official_number,
-            'official_title', l.official_title,
-            'enactment_date', l.enactment_date,
-            'translations', l.translations,
-            'type', (SELECT lt.translations FROM agora.law_types lt WHERE lt.id = l.type_id),
-            'category', (SELECT lc.translations FROM agora.law_categories lc WHERE lc.id = l.category_id),
-            'government_entity', (SELECT jsonb_build_object('id', ge.id, 'name', ge.name, 'slug', ge.slug) FROM agora.government_entities ge WHERE ge.id = l.government_entity_id),
-
-            'articles', (
-                SELECT COALESCE(jsonb_agg(
-                    jsonb_build_object(
-                        'id', la.id,
-                        'article_number', la.article_number,
-                        'article_order', COALESCE(la.article_number, 'Article ' || ROW_NUMBER() OVER (ORDER BY la.article_number)),
-                        'official_text', 'Official text not available yet - schema update required',
-                        'translations', '{"en": {"informal_summary": "Article analysis not available yet", "informal_summary_title": "' || la.article_number || '"}}'::jsonb,
-                        'tags', '[]'::jsonb
-                    )
-                ), '[]'::jsonb)
-                FROM agora.law_articles la
-                WHERE la.law_id = v_law_id
-                ORDER BY la.article_number
-            )
-        )
-    INTO result
-    FROM
-        agora.laws l
-    WHERE
-        l.id = v_law_id;
-
-    RETURN result;
+    INSERT INTO agora.background_jobs (job_type, payload, triggered_by)
+    VALUES (p_job_type, p_payload, auth.uid())
+    RETURNING id INTO new_job_id;
+    RETURN new_job_id;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-COMMENT ON FUNCTION agora.get_law_details_by_slug_v2(text) 
-IS 'Returns a full, nested JSONB object for a single law by its SLUG - compatible with current schema';
+-- This function will run every time a job is updated to create a notification.
+CREATE OR REPLACE FUNCTION agora.handle_job_completion_notification()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO agora.notifications (user_id, icon_name, title, body, link_url)
+    VALUES (
+        NEW.triggered_by,
+        CASE WHEN NEW.status = 'SUCCESS' THEN 'check_circle' ELSE 'error' END,
+        'Job "' || NEW.job_type || '" ' || NEW.status,
+        NEW.result_message,
+        NEW.payload->>'link'
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- The trigger that calls the function.
+DROP TRIGGER IF EXISTS on_job_completed ON agora.background_jobs;
+CREATE TRIGGER on_job_completed
+    AFTER UPDATE OF status ON agora.background_jobs
+    FOR EACH ROW
+    WHEN (OLD.status IS DISTINCT FROM NEW.status AND (NEW.status = 'SUCCESS' OR NEW.status = 'FAILED'))
+    EXECUTE FUNCTION agora.handle_job_completion_notification();
+
+-- GraphRAG SQL Function: find_graph_paths
+-- This function performs recursive graph traversal to find all connected nodes
+-- within a specified depth from a set of starting nodes.
+
+CREATE OR REPLACE FUNCTION agora.find_graph_paths(
+  starting_node_ids UUID[],
+  max_depth INTEGER DEFAULT 3
+)
+RETURNS UUID[]
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  result_node_ids UUID[];
+BEGIN
+  -- Use a recursive CTE to traverse the graph
+  WITH RECURSIVE graph_traversal AS (
+    -- Base case: Start with the provided node IDs at depth 0
+    SELECT 
+      id AS node_id,
+      0 AS depth
+    FROM agora.graph_nodes
+    WHERE id = ANY(starting_node_ids)
+    
+    UNION
+    
+    -- Recursive case: Find all nodes connected via edges
+    SELECT 
+      CASE 
+        WHEN ge.source_node_id = gt.node_id THEN ge.target_node_id
+        ELSE ge.source_node_id
+      END AS node_id,
+      gt.depth + 1 AS depth
+    FROM graph_traversal gt
+    JOIN agora.graph_edges ge ON (
+      ge.source_node_id = gt.node_id OR 
+      ge.target_node_id = gt.node_id
+    )
+    WHERE gt.depth < max_depth
+  )
+  
+  -- Select distinct node IDs from the traversal
+  SELECT ARRAY_AGG(DISTINCT node_id)
+  INTO result_node_ids
+  FROM graph_traversal;
+  
+  RETURN COALESCE(result_node_ids, ARRAY[]::UUID[]);
+END;
+$$;
+
+-- Add comment to the function
+COMMENT ON FUNCTION agora.find_graph_paths IS 
+'Performs recursive graph traversal to find all nodes connected to the starting nodes within max_depth hops. Used by the Krita GraphRAG assistant.';
+
+-- Example usage:
+-- SELECT agora.find_graph_paths(
+--   ARRAY['node-uuid-1'::UUID, 'node-uuid-2'::UUID], 
+--   3
+-- );
+
+-- SCRIPT: CREATE GRAPH TABLES
+-- ====================================================================
+
+-- The 'Nodes' Table: A unified representation of every entity.
+CREATE TABLE IF NOT EXISTS agora.graph_nodes (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_id uuid NOT NULL,
+    entity_type text NOT NULL, -- e.g., 'promise', 'person', 'law_article'
+    name text,
+    summary text,
+    embedding vector(1536),
+    CONSTRAINT unique_graph_entity UNIQUE (entity_id, entity_type)
+);
+COMMENT ON TABLE agora.graph_nodes IS 'A unified catalog of all entities (promises, people, laws, etc.) in the knowledge graph.';
+
+-- The 'Edges' Table: A unified representation of every relationship.
+CREATE TABLE IF NOT EXISTS agora.graph_edges (
+    source_node_id uuid NOT NULL REFERENCES agora.graph_nodes(id) ON DELETE CASCADE,
+    target_node_id uuid NOT NULL REFERENCES agora.graph_nodes(id) ON DELETE CASCADE,
+    relationship_type text NOT NULL, -- e.g., 'PROMISED_BY', 'FUNDS', 'AMENDS'
+    PRIMARY KEY (source_node_id, target_node_id, relationship_type)
+);
+COMMENT ON TABLE agora.graph_edges IS 'A unified catalog of all relationships between entities in the knowledge graph.';
+
+-- Create indexes for performance
+CREATE INDEX IF NOT EXISTS embedding_idx_graph_nodes ON agora.graph_nodes USING ivfflat (embedding vector_l2_ops);
+CREATE INDEX IF NOT EXISTS idx_graph_edges_target ON agora.graph_edges(target_node_id);
+
+-- ====================================================================
+-- SCRIPT: LAWS MODULE - KNOWLEDGE GRAPH AUTOMATION
+-- Purpose: Creates all functions and triggers to automatically populate
+--          the graph tables from law and article data.
+-- ====================================================================
+
+-- ====================================================================
+-- SECTION 1: NODE SYNC FUNCTIONS & TRIGGERS
+-- Description: These functions create/update records in 'graph_nodes'.
+-- ====================================================================
+
+-- Generic 'sync_node' helper function
+CREATE OR REPLACE FUNCTION agora.sync_node(
+    p_entity_id uuid,
+    p_entity_type text,
+    p_name text,
+    p_summary text,
+    p_embedding vector(1536)
+)
+RETURNS void AS $$
+BEGIN
+    INSERT INTO agora.graph_nodes (entity_id, entity_type, name, summary, embedding)
+    VALUES (p_entity_id, p_entity_type, p_name, p_summary, p_embedding)
+    ON CONFLICT (entity_id, entity_type) DO UPDATE
+    SET name = EXCLUDED.name,
+        summary = EXCLUDED.summary,
+        embedding = EXCLUDED.embedding;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Handler function for the 'laws' table
+CREATE OR REPLACE FUNCTION agora.handle_law_sync()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM agora.sync_node(
+        NEW.id,
+        'law',
+        NEW.official_number,
+        NEW.translations->'en'->>'informal_summary',
+        NULL -- Embedding for the top-level law can be generated later if needed
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- The handler function for the 'law_articles' table (formerly law_article_versions)
+CREATE OR REPLACE FUNCTION agora.handle_law_article_sync()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- This function now correctly references the 'law_articles' table.
+    -- The entity_type remains 'law_article_version' in the graph for consistency,
+    -- representing that this node is a *version* of an article concept.
+    PERFORM agora.sync_node(
+        NEW.id,
+        'law_article_version',
+        'Article ' || NEW.article_order || ' of ' || (SELECT official_number FROM agora.laws WHERE id = NEW.law_id),
+        NEW.translations->'analysis'->'en'->>'informal_summary',
+        NEW.summary_embedding -- Pass the embedding if it exists
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION agora.handle_law_article_sync() IS 'Handler function to sync inserts/updates on the law_articles table to the graph_nodes table.';
+
+
+-- The trigger that calls the new function, now correctly attached to 'agora.law_articles'
+CREATE TRIGGER on_law_article_change_sync_node
+    AFTER INSERT OR UPDATE ON agora.law_articles
+    FOR EACH ROW EXECUTE FUNCTION agora.handle_law_article_sync();
+
+-- Apply the triggers to the tables
+DROP TRIGGER IF EXISTS on_law_change_sync_node ON agora.laws;
+CREATE TRIGGER on_law_change_sync_node
+    AFTER INSERT OR UPDATE ON agora.laws
+    FOR EACH ROW EXECUTE FUNCTION agora.handle_law_sync();
+
+DROP TRIGGER IF EXISTS on_law_article_change_sync_node ON agora.law_articles;
+CREATE TRIGGER on_law_article_change_sync_node
+    AFTER INSERT OR UPDATE ON agora.law_articles
+    FOR EACH ROW EXECUTE FUNCTION agora.handle_law_article_sync();
+
+
+-- ====================================================================
+-- SECTION 2: EDGE SYNC FUNCTIONS & TRIGGERS
+-- Description: These functions create records in 'graph_edges'.
+-- ====================================================================
+
+-- Generic 'sync_edge' helper function
+CREATE OR REPLACE FUNCTION agora.sync_edge(
+    p_source_entity_id uuid,
+    p_source_entity_type text,
+    p_target_entity_id uuid,
+    p_target_entity_type text,
+    p_relationship_type text
+)
+RETURNS void AS $$
+DECLARE
+    v_source_node_id uuid;
+    v_target_node_id uuid;
+BEGIN
+    -- Find the node IDs for the source and target entities
+    SELECT id INTO v_source_node_id FROM agora.graph_nodes WHERE entity_id = p_source_entity_id AND entity_type = p_source_entity_type;
+    SELECT id INTO v_target_node_id FROM agora.graph_nodes WHERE entity_id = p_target_entity_id AND entity_type = p_target_entity_type;
+
+    -- If both nodes exist, create the edge
+    IF v_source_node_id IS NOT NULL AND v_target_node_id IS NOT NULL THEN
+        INSERT INTO agora.graph_edges (source_node_id, target_node_id, relationship_type)
+        VALUES (v_source_node_id, v_target_node_id, p_relationship_type)
+        ON CONFLICT (source_node_id, target_node_id, relationship_type) DO NOTHING;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- Handler function for the 'law_relationships' junction table (law-to-law)
+CREATE OR REPLACE FUNCTION agora.handle_law_relationship_sync()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM agora.sync_edge(
+        NEW.source_law_id, 'law',
+        NEW.target_law_id, 'law',
+        NEW.relationship_type -- e.g., 'AMENDS', 'REVOKES'
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Handler function for the 'law_article_references' junction table (article-to-article)
+CREATE OR REPLACE FUNCTION agora.handle_law_article_reference_sync()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM agora.sync_edge(
+        NEW.source_article_id, 'law_article',
+        NEW.target_article_id, 'law_article',
+        NEW.reference_type -- e.g., 'REFERENCES', 'CLARIFIES'
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply the triggers to the junction tables
+DROP TRIGGER IF EXISTS on_law_relationship_change_sync_edge ON agora.law_relationships;
+CREATE TRIGGER on_law_relationship_change_sync_edge
+    AFTER INSERT OR UPDATE ON agora.law_relationships
+    FOR EACH ROW EXECUTE FUNCTION agora.handle_law_relationship_sync();
+
+DROP TRIGGER IF EXISTS on_law_article_reference_change_sync_edge ON agora.law_article_references;
+CREATE TRIGGER on_law_article_reference_change_sync_edge
+    AFTER INSERT OR UPDATE ON agora.law_article_references
+    FOR EACH ROW EXECUTE FUNCTION agora.handle_law_article_reference_sync();
+
+-- ====================================================================
+-- SCRIPT: CREATE CASCADE DELETE SYSTEM FOR LAWS
+-- Purpose: Creates a trigger and a function to safely delete a law
+--          and all its associated children and graph data.
+-- ====================================================================
+
+-- ====================================================================
+-- STEP 1: CREATE THE "CLEANUP" TRIGGER FOR THE KNOWLEDGE GRAPH
+-- Description: This function and trigger ensure that when a law article
+--              is deleted, its corresponding graph node is also deleted.
+-- ====================================================================
+
+CREATE OR REPLACE FUNCTION agora.handle_deleted_law_article_node()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- When a row in 'law_articles' is deleted, delete the corresponding
+    -- node in 'graph_nodes'. The cascade on 'graph_edges' will clean up the relationships.
+    DELETE FROM agora.graph_nodes
+    WHERE entity_id = OLD.id AND entity_type = 'law_article_version'; -- Note: entity_type must match what your sync trigger uses.
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS on_law_article_delete_sync_node ON agora.law_articles;
+CREATE TRIGGER on_law_article_delete_sync_node
+    AFTER DELETE ON agora.law_articles
+    FOR EACH ROW EXECUTE FUNCTION agora.handle_deleted_law_article_node();
+
+-- We do the same for the parent 'law' node.
+CREATE OR REPLACE FUNCTION agora.handle_deleted_law_node()
+RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM agora.graph_nodes
+    WHERE entity_id = OLD.id AND entity_type = 'law';
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS on_law_delete_sync_node ON agora.laws;
+CREATE TRIGGER on_law_delete_sync_node
+    AFTER DELETE ON agora.laws
+    FOR EACH ROW EXECUTE FUNCTION agora.handle_deleted_law_node();
+
+
+-- ====================================================================
+-- STEP 2: CREATE THE MAIN DELETION FUNCTION
+-- Description: This is the simple, safe function your server action will call.
+-- ====================================================================
+
+CREATE OR REPLACE FUNCTION agora.delete_law_and_children(p_law_id uuid)
+RETURNS void AS $$
+BEGIN
+    -- The user only needs to call this function with a law_id.
+    -- The 'ON DELETE CASCADE' on 'agora.law_articles' will delete all child articles.
+    -- The trigger we created above will then automatically delete all the graph nodes.
+    -- The 'ON DELETE CASCADE' on 'agora.graph_edges' will then delete all the edges.
+    DELETE FROM agora.laws WHERE id = p_law_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION agora.delete_law_and_children(uuid) IS 'Safely deletes a law and all its associated articles, versions, references, and knowledge graph data.';

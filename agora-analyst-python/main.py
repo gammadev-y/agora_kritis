@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 Agora Analyst - AI Analysis Service for Legal Documents
-CLI entry point for the Kritis 4.0 analysis pipeline.
+CLI entry point for the Kritis analysis pipeline.
 
 Production-ready version with enhanced error handling and monitoring.
+Active Workflows: V4.0 (PROD10), V5.0 (Enhanced Relationships)
 """
 
 import argparse
@@ -12,13 +13,8 @@ import sys
 import os
 import uuid
 from datetime import datetime
-from analysis.document_analyzer import DocumentAnalyzer
-from analysis.kritis_analyzer import KritisAnalyzer
-from analysis.kritis_analyzer_v2 import KritisAnalyzerV2
-from analysis.kritis_analyzer_v3 import KritisAnalyzerV3
-from analysis.kritis_analyzer_v4 import KritisAnalyzerV4
-from analysis.kritis_analyzer_v31 import KritisAnalyzerV31
 from analysis.kritis_analyzer_v40 import KritisAnalyzerV40
+from analysis.kritis_analyzer_v50 import KritisAnalyzerV50
 from lib.supabase_client import get_supabase_admin_client
 
 # Configure logging
@@ -96,38 +92,32 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Legacy single-stage analysis
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc analyze-source
+  # Kritis V4.0 (PROD10) - Complete Pipeline
+  python main.py --source-id <UUID> v40-complete
   
-  # Kritis 1.0 3-stage pipeline  
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc analyze-chunks
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc synthesize-summary
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc ingest-law
+  # Kritis V4.0 (PROD10) - Individual Stages
+  python main.py --source-id <UUID> v40-extract
+  python main.py --source-id <UUID> v40-analyze
+  python main.py --source-id <UUID> v40-synthesize
+  python main.py --source-id <UUID> v40-ingest
   
-  # Kritis 2.0 Enhanced 4-stage pipeline
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc extract-metadata
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc analyze-enhanced
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc build-knowledge-graph
+  # Kritis V5.0 (Enhanced Relationships) - Complete Pipeline (RECOMMENDED)
+  python main.py --source-id <UUID> v50-complete
   
-  # Kritis 3.0 Multi-Article Processing pipeline
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc parse-articles
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc batch-analyze
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc build-multi-article-graph
-  
-  # Kritis 4.0 Enhanced Analysis with Preamble and Intelligent Tagging
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc enhanced-extract
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc enhanced-analyze-context
-  python main.py --source-id 12345678-1234-1234-1234-123456789abc intelligent-graph
+  # Kritis V5.0 (Enhanced Relationships) - Individual Stages
+  python main.py --source-id <UUID> v50-extract
+  python main.py --source-id <UUID> v50-analyze
+  python main.py --source-id <UUID> v50-build-graph
   
   # Background job notification (optional)
-  python main.py --source-id ... --job-id 12345678-1234-1234-1234-123456789abc v40-complete
+  python main.py --source-id <UUID> --job-id <JOB_UUID> v50-complete
         """
     )
     
     # Add global arguments BEFORE subparsers (so they work with all commands)
     parser.add_argument(
         '--source-id',
-        required=True,
+        required=False,  # Changed to False - only required for analysis commands
         help='UUID of the source document to analyze'
     )
     
@@ -139,138 +129,57 @@ Examples:
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
-    # Legacy command for backward compatibility
-    legacy_parser = subparsers.add_parser(
-        'analyze-source', 
-        help='Legacy: Run complete analysis in single stage (deprecated)'
+    # Workflow Discovery Command
+    describe_workflows_parser = subparsers.add_parser(
+        'describe-workflows',
+        help='List all available workflows as JSON manifest (for dynamic integration)'
     )
-    
-    # Kritis 1.0 Commands
-    stage1_parser = subparsers.add_parser(
-        'analyze-chunks',
-        help='Kritis 1.0 Stage 1: Analyze document chunks individually'
-    )
-    
-    stage2_parser = subparsers.add_parser(
-        'synthesize-summary',
-        help='Kritis 1.0 Stage 2: Synthesize chunk analyses into document summary'
-    )
-    
-    stage3_parser = subparsers.add_parser(
-        'ingest-law',
-        help='Kritis 1.0 Stage 3: Create structured law records from analysis'
-    )
-    
-    # Kritis 2.0 Commands
-    v2_stage1_parser = subparsers.add_parser(
-        'extract-metadata',
-        help='Kritis 2.0 Stage 1-2: Extract core metadata from first chunk'
-    )
-    
-    v2_stage2_parser = subparsers.add_parser(
-        'analyze-enhanced',
-        help='Kritis 2.0 Stage 3: Enhanced structured analysis with categories and entities'
-    )
-    
-    v2_stage3_parser = subparsers.add_parser(
-        'build-knowledge-graph',
-        help='Kritis 2.0 Stage 4: Build knowledge graph with tagging and relationships'
-    )
-    
-    
-    # Kritis 3.0 Commands - Multi-Article Processing
-    v3_stage1_parser = subparsers.add_parser(
-        'parse-articles',
-        help='Kritis 3.0 Stage 1: Parse and separate multiple articles from chunks'
-    )
-    
-    
-    v3_stage2_parser = subparsers.add_parser(
-        'batch-analyze',
-        help='Kritis 3.0 Stage 2: Batch analysis of multiple articles with smart token management'
-    )
-    
-    
-    v3_stage3_parser = subparsers.add_parser(
-        'build-multi-article-graph',
-        help='Kritis 3.0 Stage 3: Build knowledge graph with multiple articles and enhanced relationships'
-    )
-    
-    
-    # Kritis 4.0 Commands - Enhanced Analysis with Preamble and Intelligent Tagging
-    v4_stage1_parser = subparsers.add_parser(
-        'enhanced-extract',
-        help='Kritis 4.0 Stage 1: Enhanced extractor with preamble separation and article parsing'
-    )
-    
-    
-    v4_stage2_parser = subparsers.add_parser(
-        'enhanced-analyze-context',
-        help='Kritis 4.0 Stage 2: Enhanced analysis with preamble context and enriched entity extraction'
-    )
-    
-    
-    v4_stage3_parser = subparsers.add_parser(
-        'intelligent-graph',
-        help='Kritis 4.0 Stage 3: Intelligent knowledge graph with enhanced tagging and preamble integration'
-    )
-    
-    
-    # Kritis V3.1 Commands - PROD9 Refactored Pipeline
-    v31_stage1_parser = subparsers.add_parser(
-        'v31-extract',
-        help='Kritis V3.1 Stage 1: PROD9 enhanced extractor with preamble separation'
-    )
-    
-    
-    v31_stage2_parser = subparsers.add_parser(
-        'v31-analyze',
-        help='Kritis V3.1 Stage 2: PROD9 enhanced analyst with structured tags'
-    )
-    
-    
-    v31_stage3_parser = subparsers.add_parser(
-        'v31-ingest',
-        help='Kritis V3.1 Stage 3: PROD9 simplified schema law ingestion'
-    )
-    
-    
-    # Kritis V3.1 Complete Pipeline Command
-    v31_complete_parser = subparsers.add_parser(
-        'v31-complete',
-        help='Kritis V3.1 Complete Pipeline: Run all PROD9 stages (extract -> analyze -> ingest)'
-    )
-    
     
     # Kritis V4.0 Commands - PROD10 Final Definitive Pipeline
     v40_stage1_parser = subparsers.add_parser(
         'v40-extract',
-        help='Kritis V4.0 Stage 1: PROD10 enhanced extractor (refined from V3.1)'
+        help='Kritis V4.0 Stage 1: PROD10 enhanced extractor'
     )
-    
     
     v40_stage2_parser = subparsers.add_parser(
         'v40-analyze',
         help='Kritis V4.0 Stage 2: PROD10 definitive analyst with V4.2 prompts'
     )
     
-    
     v40_stage3_parser = subparsers.add_parser(
         'v40-synthesize',
         help='Kritis V4.0 Stage 3: PROD10 final summary synthesis with category suggestions'
     )
-    
     
     v40_stage4_parser = subparsers.add_parser(
         'v40-ingest',
         help='Kritis V4.0 Stage 4: PROD10 definitive law ingestion with cross-references'
     )
     
-    
-    # Kritis V4.0 Complete Pipeline Command
     v40_complete_parser = subparsers.add_parser(
         'v40-complete',
-        help='Kritis V4.0 Complete Pipeline: Run all PROD10 stages (extract -> analyze -> synthesize -> ingest)'
+        help='Kritis V4.0 Complete Pipeline: Run all PROD10 stages'
+    )
+    
+    # Kritis V5.0 Commands - Enhanced Relationship Processing (RECOMMENDED)
+    v50_stage1_parser = subparsers.add_parser(
+        'v50-extract',
+        help='Kritis V5.0 Stage 1: Enhanced extractor with HTML preservation'
+    )
+    
+    v50_stage2_parser = subparsers.add_parser(
+        'v50-analyze',
+        help='Kritis V5.0 Stage 2: Enhanced analyst with cross-reference extraction (URLs + article numbers)'
+    )
+    
+    v50_stage3_parser = subparsers.add_parser(
+        'v50-build-graph',
+        help='Kritis V5.0 Stage 3: Knowledge Graph Builder with consistent relationships'
+    )
+    
+    v50_complete_parser = subparsers.add_parser(
+        'v50-complete',
+        help='Kritis V5.0 Complete Pipeline: Run all stages with enhanced relationship processing (RECOMMENDED)'
     )
     
     
@@ -280,7 +189,105 @@ Examples:
         parser.print_help()
         return
     
-    # Production validation
+    # Handle describe-workflows command (doesn't require validation or source_id)
+    if args.command == 'describe-workflows':
+        import json
+        workflows = [
+            {
+                "id": "v40-complete",
+                "name": "Kritis V4.0 - Complete Pipeline (PROD10)",
+                "description": "Runs the complete V4.0 pipeline with all 4 stages: extraction, analysis, synthesis, and law ingestion. This is the production-ready PROD10 version.",
+                "stages": ["extract", "analyze", "synthesize", "ingest"],
+                "version": "4.0",
+                "status": "stable",
+                "recommended": False
+            },
+            {
+                "id": "v40-extract",
+                "name": "Kritis V4.0 - Extraction Only",
+                "description": "Runs only the PROD10 enhanced extraction stage. Extracts preamble and articles from legal documents.",
+                "stages": ["extract"],
+                "version": "4.0",
+                "status": "stable",
+                "recommended": False
+            },
+            {
+                "id": "v40-analyze",
+                "name": "Kritis V4.0 - Analysis Only",
+                "description": "Runs only the PROD10 analysis stage with V4.2 prompts. Analyzes extracted content.",
+                "stages": ["analyze"],
+                "version": "4.0",
+                "status": "stable",
+                "recommended": False
+            },
+            {
+                "id": "v40-synthesize",
+                "name": "Kritis V4.0 - Synthesis Only",
+                "description": "Runs only the PROD10 synthesis stage. Creates final summary and category suggestions.",
+                "stages": ["synthesize"],
+                "version": "4.0",
+                "status": "stable",
+                "recommended": False
+            },
+            {
+                "id": "v40-ingest",
+                "name": "Kritis V4.0 - Ingestion Only",
+                "description": "Runs only the PROD10 law ingestion stage. Creates law records with cross-references.",
+                "stages": ["ingest"],
+                "version": "4.0",
+                "status": "stable",
+                "recommended": False
+            },
+            {
+                "id": "v50-complete",
+                "name": "Kritis V5.0 - Complete Pipeline (Enhanced Relationships)",
+                "description": "Runs the complete V5.0 pipeline with enhanced relationship processing. Features URL-based reference matching, law-to-law and article-to-article relationships, temporal validation, and automatic status updates. RECOMMENDED for new documents.",
+                "stages": ["extract", "analyze", "build-graph"],
+                "version": "5.0",
+                "status": "stable",
+                "recommended": True,
+                "features": [
+                    "URL-based reference matching",
+                    "Law-to-law relationships",
+                    "Article-to-article relationships",
+                    "Preamble cross-reference processing",
+                    "Temporal consistency validation",
+                    "Automatic status updates (superseded/revoked)",
+                    "Conflict resolution with delete_law_and_children()"
+                ]
+            },
+            {
+                "id": "v50-extract",
+                "name": "Kritis V5.0 - Extraction Only",
+                "description": "Runs only the enhanced extraction stage with HTML preservation.",
+                "stages": ["extract"],
+                "version": "5.0",
+                "status": "stable",
+                "recommended": False
+            },
+            {
+                "id": "v50-analyze",
+                "name": "Kritis V5.0 - Analysis Only",
+                "description": "Runs only the enhanced analysis stage with cross-reference extraction (URLs + article numbers).",
+                "stages": ["analyze"],
+                "version": "5.0",
+                "status": "stable",
+                "recommended": False
+            },
+            {
+                "id": "v50-build-graph",
+                "name": "Kritis V5.0 - Knowledge Graph Builder Only",
+                "description": "Runs only the knowledge graph building stage with consistent relationship processing.",
+                "stages": ["build-graph"],
+                "version": "5.0",
+                "status": "stable",
+                "recommended": False
+            }
+        ]
+        print(json.dumps(workflows, indent=2))
+        return
+    
+    # Production validation (required for all other commands)
     if not validate_environment():
         logger.error("❌ Environment validation failed")
         sys.exit(1)
@@ -298,222 +305,14 @@ Examples:
     logger.info(f"📋 Command: {args.command}")
 
     try:
-        if args.command == 'analyze-source':
-            # Legacy analysis for backward compatibility
-            logger.info("⚠️  Using legacy analysis mode. Consider using the new Kritis pipelines.")
-            analyzer = DocumentAnalyzer()
-            analyzer.analyze_source(args.source_id)
-            
-        elif args.command == 'analyze-chunks':
-            # Kritis 1.0 Stage 1: Map Phase
-            logger.info("🔄 Using Kritis 1.0 pipeline")
-            kritis = KritisAnalyzer()
-            success = kritis.run_map_phase(args.source_id)
-            if success:
-                logger.info("🎯 Kritis 1.0 Stage 1 completed successfully")
-                logger.info("📋 Next step: python main.py synthesize-summary --source-id " + args.source_id)
-            else:
-                logger.error("❌ Kritis 1.0 Stage 1 failed")
-                sys.exit(1)
-                
-        elif args.command == 'synthesize-summary':
-            # Kritis 1.0 Stage 2: Reduce Phase
-            kritis = KritisAnalyzer()
-            summary = kritis.run_reduce_phase(args.source_id)
-            logger.info("🎯 Kritis 1.0 Stage 2 completed successfully")
-            logger.info(f"📄 Document Summary Generated:")
-            logger.info(f"PT Title: {summary['pt']['informal_summary_title']}")
-            logger.info(f"EN Title: {summary['en']['informal_summary_title']}")
-            logger.info("📋 Next step: python main.py ingest-law --source-id " + args.source_id)
-            
-        elif args.command == 'ingest-law':
-            # Kritis 1.0 Stage 3: Law Ingestion
-            kritis = KritisAnalyzer()
-            law_id = kritis.ingest_law_from_analysis(args.source_id)
-            logger.info(f"🎯 Kritis 1.0 Stage 3 completed successfully")
-            logger.info(f"📚 Law created with ID: {law_id}")
-            logger.info("✅ Full Kritis 1.0 pipeline completed!")
-            
-        elif args.command == 'extract-metadata':
-            # Kritis 2.0 Stage 1-2: Metadata Extraction
-            logger.info("🚀 Using Kritis 2.0 Enhanced Pipeline")
-            kritis_v2 = KritisAnalyzerV2()
-            metadata = kritis_v2.run_extractor_phase(args.source_id)
-            logger.info("🎯 Kritis 2.0 Stage 1-2 completed successfully")
-            logger.info(f"📄 Extracted Metadata:")
-            logger.info(f"Official Number: {metadata.get('official_number', 'N/A')}")
-            logger.info(f"Title: {metadata.get('official_title_pt', 'N/A')}")
-            logger.info(f"Type: {metadata.get('law_type_id', 'N/A')}")
-            logger.info(f"Date: {metadata.get('enactment_date', 'N/A')}")
-            logger.info("📋 Next step: python main.py analyze-enhanced --source-id " + args.source_id)
-            
-        elif args.command == 'analyze-enhanced':
-            # Kritis 2.0 Stage 3: Enhanced Analysis
-            kritis_v2 = KritisAnalyzerV2()
-            success = kritis_v2.run_analyst_phase(args.source_id)
-            if success:
-                logger.info("🎯 Kritis 2.0 Stage 3 completed successfully")
-                logger.info("📋 Next step: python main.py build-knowledge-graph --source-id " + args.source_id)
-            else:
-                logger.error("❌ Kritis 2.0 Stage 3 failed")
-                sys.exit(1)
-            
-        elif args.command == 'build-knowledge-graph':
-            # Kritis 2.0 Stage 4: Knowledge Graph Building
-            kritis_v2 = KritisAnalyzerV2()
-            law_id = kritis_v2.run_knowledge_graph_builder(args.source_id)
-            logger.info(f"🎯 Kritis 2.0 Stage 4 completed successfully")
-            logger.info(f"📚 Law created with enhanced knowledge graph: {law_id}")
-            logger.info("✅ Full Kritis 2.0 Enhanced Pipeline completed!")
-            
-        elif args.command == 'parse-articles':
-            # Kritis 3.0 Stage 1: Enhanced Extractor - Smart Article Parser
-            logger.info("🚀 Using Kritis 3.0 Multi-Article Processing Pipeline")
-            kritis_v3 = KritisAnalyzerV3()
-            result = kritis_v3.run_enhanced_extractor_phase(args.source_id)
-            logger.info("🎯 Kritis 3.0 Stage 1 completed successfully")
-            logger.info(f"📄 Parsing Results:")
-            logger.info(f"Total Articles Found: {result['total_articles']}")
-            if result['metadata']:
-                logger.info(f"Official Number: {result['metadata'].get('official_number', 'N/A')}")
-                logger.info(f"Title: {result['metadata'].get('official_title_pt', 'N/A')}")
-                logger.info(f"Type: {result['metadata'].get('law_type_id', 'N/A')}")
-                logger.info(f"Date: {result['metadata'].get('enactment_date', 'N/A')}")
-            logger.info("📋 Next step: python main.py batch-analyze --source-id " + args.source_id)
-            
-        elif args.command == 'batch-analyze':
-            # Kritis 3.0 Stage 2: Batch Analyst - Multi-Article Processor
-            kritis_v3 = KritisAnalyzerV3()
-            result = kritis_v3.run_batch_analyst_phase(args.source_id)
-            logger.info("🎯 Kritis 3.0 Stage 2 completed successfully")
-            logger.info(f"📊 Analysis Results:")
-            logger.info(f"Articles Analyzed: {result['total_articles_analyzed']}")
-            logger.info(f"Batches Processed: {result['batches_processed']}")
-            logger.info("📋 Next step: python main.py build-multi-article-graph --source-id " + args.source_id)
-            
-        elif args.command == 'build-multi-article-graph':
-            # Kritis 3.0 Stage 3: Multi-Article Knowledge Graph Builder
-            kritis_v3 = KritisAnalyzerV3()
-            law_id = kritis_v3.run_multi_article_knowledge_graph_builder(args.source_id)
-            logger.info(f"🎯 Kritis 3.0 Stage 3 completed successfully")
-            logger.info(f"📚 Law created with multi-article knowledge graph: {law_id}")
-            logger.info("✅ Full Kritis 3.0 Multi-Article Pipeline completed!")
-            
-        elif args.command == 'enhanced-extract':
-            # Kritis 4.0 Stage 1: Enhanced Extractor with Preamble Handling
-            logger.info("🚀 Using Kritis 4.0 Enhanced Analysis Pipeline with Preamble Handling")
-            kritis_v4 = KritisAnalyzerV4()
-            result = kritis_v4.run_enhanced_extractor_with_preamble(args.source_id)
-            logger.info("🎯 Kritis 4.0 Stage 1 completed successfully")
-            logger.info(f"📄 Enhanced Parsing Results:")
-            logger.info(f"Total Articles Found: {result['total_articles']}")
-            logger.info(f"Has Preamble: {'Yes' if result['has_preamble'] else 'No'}")
-            if result['metadata']:
-                logger.info(f"Official Number: {result['metadata'].get('official_number', 'N/A')}")
-                logger.info(f"Title: {result['metadata'].get('official_title_pt', 'N/A')}")
-                logger.info(f"Type: {result['metadata'].get('law_type_id', 'N/A')}")
-                logger.info(f"Date: {result['metadata'].get('enactment_date', 'N/A')}")
-            logger.info("📋 Next step: python main.py enhanced-analyze-context --source-id " + args.source_id)
-            
-        elif args.command == 'enhanced-analyze-context':
-            # Kritis 4.0 Stage 2: Enhanced Analyst with Preamble Context
-            kritis_v4 = KritisAnalyzerV4()
-            result = kritis_v4.run_enhanced_analyst_with_context(args.source_id)
-            logger.info("🎯 Kritis 4.0 Stage 2 completed successfully")
-            logger.info(f"📊 Enhanced Analysis Results:")
-            logger.info(f"Items Analyzed: {result['total_items_analyzed']}")
-            logger.info(f"Successful Analyses: {result.get('successful_analyses', 'Unknown')}")
-            logger.info(f"Failed Analyses: {result.get('failed_analyses', 'Unknown')}")
-            logger.info(f"Completion Rate: {result.get('completion_rate', 'Unknown')}%")
-            logger.info(f"Has Preamble Analysis: {'Yes' if result['has_preamble_analysis'] else 'No'}")
-            logger.info(f"Batches Processed: {result['batches_processed']}")
-            
-            # Report any analysis issues
-            if result.get('failed_analyses', 0) > 0:
-                logger.warning(f"⚠️ {result['failed_analyses']} articles had analysis errors")
-                logger.warning("These articles will have fallback analysis data")
-            
-            logger.info("📋 Next step: python main.py intelligent-graph --source-id " + args.source_id)
-            
-        elif args.command == 'intelligent-graph':
-            # Kritis 4.0 Stage 3: Intelligent Knowledge Graph Builder
-            kritis_v4 = KritisAnalyzerV4()
-            law_id = kritis_v4.run_intelligent_knowledge_graph_builder(args.source_id)
-            logger.info(f"🎯 Kritis 4.0 Stage 3 completed successfully")
-            logger.info(f"📚 Law created with intelligent knowledge graph and enhanced tagging: {law_id}")
-            logger.info("✅ Full Kritis 4.0 Enhanced Pipeline completed!")
-            
-        elif args.command == 'v31-extract':
-            # Kritis V3.1 Stage 1: PROD9 Enhanced Extractor
-            logger.info("🚀 Using Kritis V3.1 PROD9 Refactored Pipeline")
-            kritis_v31 = KritisAnalyzerV31()
-            result = kritis_v31.run_enhanced_extractor_phase(args.source_id)
-            logger.info("🎯 Kritis V3.1 Stage 1 completed successfully")
-            logger.info(f"📄 PROD9 Extraction Results:")
-            logger.info(f"Total Articles Found: {result['total_articles']}")
-            logger.info(f"Has Preamble: {'Yes' if result['has_preamble'] else 'No'}")
-            if result['metadata']:
-                logger.info(f"Official Number: {result['metadata'].get('official_number', 'N/A')}")
-                logger.info(f"Title: {result['metadata'].get('official_title', 'N/A')}")
-                logger.info(f"Type: {result['metadata'].get('law_type_id', 'N/A')}")
-                logger.info(f"Date: {result['metadata'].get('enactment_date', 'N/A')}")
-            logger.info("📋 Next step: python main.py v31-analyze --source-id " + args.source_id)
-            
-        elif args.command == 'v31-analyze':
-            # Kritis V3.1 Stage 2: PROD9 Enhanced Analyst
-            kritis_v31 = KritisAnalyzerV31()
-            result = kritis_v31.run_enhanced_analyst_phase(args.source_id)
-            logger.info("🎯 Kritis V3.1 Stage 2 completed successfully")
-            logger.info(f"📊 PROD9 Analysis Results:")
-            logger.info(f"Items Analyzed: {result['total_items_analyzed']}")
-            logger.info(f"Successful Analyses: {result['successful_analyses']}")
-            logger.info(f"Completion Rate: {result['completion_rate']:.1f}%")
-            
-            if result['successful_analyses'] < result['total_items_analyzed']:
-                failed = result['total_items_analyzed'] - result['successful_analyses']
-                logger.warning(f"⚠️ {failed} items had analysis errors and will use fallback data")
-            
-            logger.info("📋 Next step: python main.py v31-ingest --source-id " + args.source_id)
-            
-        elif args.command == 'v31-ingest':
-            # Kritis V3.1 Stage 3: PROD9 Law Ingestion
-            kritis_v31 = KritisAnalyzerV31()
-            law_id = kritis_v31.run_enhanced_law_ingestion(args.source_id)
-            logger.info(f"🎯 Kritis V3.1 Stage 3 completed successfully")
-            logger.info(f"📚 Law created with PROD9 simplified schema: {law_id}")
-            logger.info("✅ Full Kritis V3.1 PROD9 Pipeline completed!")
-            
-        elif args.command == 'v31-complete':
-            # Kritis V3.1 Complete Pipeline: All stages in sequence
-            logger.info("🚀 Starting Kritis V3.1 Complete PROD9 Pipeline")
-            kritis_v31 = KritisAnalyzerV31()
-            
-            # Stage 1: Extract
-            logger.info("📋 Stage 1/3: Enhanced Extraction...")
-            extract_result = kritis_v31.run_enhanced_extractor_phase(args.source_id)
-            logger.info(f"✅ Stage 1 complete: {extract_result['total_articles']} articles, preamble: {extract_result['has_preamble']}")
-            
-            # Stage 2: Analyze
-            logger.info("📋 Stage 2/3: Enhanced Analysis...")
-            analyze_result = kritis_v31.run_enhanced_analyst_phase(args.source_id)
-            logger.info(f"✅ Stage 2 complete: {analyze_result['successful_analyses']}/{analyze_result['total_items_analyzed']} items analyzed ({analyze_result['completion_rate']:.1f}%)")
-            
-            # Stage 3: Ingest
-            logger.info("📋 Stage 3/3: Law Ingestion...")
-            law_id = kritis_v31.run_enhanced_law_ingestion(args.source_id)
-            logger.info(f"✅ Stage 3 complete: Law created {law_id}")
-            
-            logger.info("🎉 Complete Kritis V3.1 PROD9 Pipeline finished successfully!")
-            logger.info(f"📚 Final Law ID: {law_id}")
-            logger.info("🔗 The law follows the PROD9 simplified schema:")
-            logger.info("   - Direct laws -> law_article_versions relationship")
-            logger.info("   - Preamble stored as article_order = 0")
-            logger.info("   - JSONB tags on both laws and versions tables")
-            logger.info("   - Enhanced structured analysis with cross-references")
-            
-        elif args.command == 'v40-extract':
+        # ========================================
+        # KRITIS V4.0 COMMANDS (PROD10)
+        # ========================================
+        
+        if args.command == 'v40-extract':
+
             # Kritis V4.0 Stage 1: PROD10 Enhanced Extractor
-            logger.info("🚀 Using Kritis V4.0 PROD10 Final Definitive Pipeline")
+            logger.info("🚀 Using Kritis V4.0 PROD10 Pipeline")
             kritis_v40 = KritisAnalyzerV40()
             result = kritis_v40.run_enhanced_extractor_phase(args.source_id)
             logger.info("🎯 Kritis V4.0 Stage 1 completed successfully")
@@ -577,6 +376,76 @@ Examples:
             logger.info("   - Enhanced tag structure with organized categories")
             logger.info("   - Cross-reference processing with relationship types")
             logger.info("   - Final summary synthesis with category suggestions")
+        
+        # ========================================
+        # KRITIS V5.0 COMMANDS (ENHANCED RELATIONSHIPS) - RECOMMENDED
+        # ========================================
+        
+        elif args.command == 'v50-extract':
+            # Kritis V5.0 Stage 1: Enhanced Extractor
+            logger.info("🚀 Using Kritis V5.0 Enhanced Relationship Pipeline (RECOMMENDED)")
+            kritis_v50 = KritisAnalyzerV50()
+            result = kritis_v50.run_enhanced_extractor_phase(args.source_id)
+            logger.info("🎯 Kritis V5.0 Stage 1 completed successfully")
+            logger.info(f"📄 Extraction Results:")
+            logger.info(f"Total Articles: {result['total_articles']}")
+            logger.info(f"Has Preamble: {'Yes' if result['has_preamble'] else 'No'}")
+            if result['metadata']:
+                logger.info(f"Official Number: {result['metadata'].get('official_number', 'N/A')}")
+                logger.info(f"Title: {result['metadata'].get('official_title', 'N/A')}")
+                logger.info(f"Date: {result['metadata'].get('enactment_date', 'N/A')}")
+            logger.info("📋 Next step: python main.py v50-analyze --source-id " + args.source_id)
+        
+        elif args.command == 'v50-analyze':
+            # Kritis V5.0 Stage 2: Enhanced Analyst with Cross-References
+            kritis_v50 = KritisAnalyzerV50()
+            result = kritis_v50.run_kritis_v50_analyst_phase(args.source_id)
+            logger.info("🎯 Kritis V5.0 Stage 2 completed successfully")
+            logger.info(f"📊 Enhanced Analysis with Cross-References:")
+            logger.info(f"Items Analyzed: {result['total_items_analyzed']}")
+            logger.info(f"Successful: {result['successful_analyses']}")
+            logger.info(f"Completion Rate: {result['completion_rate']:.1f}%")
+            logger.info("📋 Next step: python main.py v50-build-graph --source-id " + args.source_id)
+        
+        elif args.command == 'v50-build-graph':
+            # Kritis V5.0 Stage 3: Knowledge Graph Builder
+            kritis_v50 = KritisAnalyzerV50()
+            result = kritis_v50.run_knowledge_graph_builder_phase(args.source_id)
+            logger.info("🎯 Kritis V5.0 Stage 3 completed successfully")
+            logger.info(f"📚 Law created with enhanced relationship graph: {result['law_id']}")
+            logger.info(f"🔗 Relationships Created:")
+            logger.info(f"   - Law-to-Law: {result['relationships_created']['law_relationships']}")
+            logger.info(f"   - Article-to-Article: {result['relationships_created']['article_references']}")
+            logger.info("✅ Full Kritis V5.0 Pipeline completed!")
+        
+        elif args.command == 'v50-complete':
+            # Kritis V5.0 Complete Pipeline: All stages in sequence
+            logger.info("🚀 Starting Kritis V5.0 Complete Enhanced Relationship Pipeline (RECOMMENDED)")
+            kritis_v50 = KritisAnalyzerV50()
+            
+            # Stage 1: Extract
+            logger.info("📋 Stage 1/3: Enhanced Extraction...")
+            extract_result = kritis_v50.run_enhanced_extractor_phase(args.source_id)
+            logger.info(f"✅ Stage 1 complete: {extract_result['total_articles']} articles")
+            
+            # Stage 2: Analyze with Enhanced Cross-References
+            logger.info("📋 Stage 2/3: Enhanced Analysis with Cross-References...")
+            analyze_result = kritis_v50.run_kritis_v50_analyst_phase(args.source_id)
+            logger.info(f"✅ Stage 2 complete: {analyze_result['successful_analyses']}/{analyze_result['total_items_analyzed']} items ({analyze_result['completion_rate']:.1f}%)")
+            
+            # Stage 3: Build Knowledge Graph
+            logger.info("📋 Stage 3/3: Knowledge Graph Building...")
+            graph_result = kritis_v50.run_knowledge_graph_builder_phase(args.source_id)
+            logger.info(f"✅ Stage 3 complete: Law {graph_result['law_id']}")
+            
+            logger.info("🎉 Complete Kritis V5.0 Pipeline finished successfully!")
+            logger.info(f"📚 Final Law ID: {graph_result['law_id']}")
+            logger.info("🔗 Enhanced Relationship Features:")
+            logger.info(f"   - URL-based reference matching (reliable)")
+            logger.info(f"   - Article-to-article relationships: {graph_result['relationships_created']['article_references']}")
+            logger.info(f"   - Law-to-law relationships: {graph_result['relationships_created']['law_relationships']}")
+            logger.info("   - Temporal consistency validation")
+            logger.info("   - Automatic status updates (superseded/revoked)")
             
     except KeyboardInterrupt:
         logger.warning("⚠️ Analysis interrupted by user")

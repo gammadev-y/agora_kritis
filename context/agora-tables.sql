@@ -31,9 +31,8 @@
 -- 29. government_roles
 -- 30. ingestion_logs
 -- 31. interest_types
--- 32. law_article_references
--- 33. law_article_versions
--- 34. law_categories
+-- 32. law_articles
+-- 33. law_categories
 -- 35. law_emitting_entities
 -- 36. law_relationships
 -- 37. law_types
@@ -78,20 +77,29 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
 CREATE TABLE agora.action_funding_links (
   action_id uuid NOT NULL,
   funding_entry_id uuid NOT NULL,
   influence_type text NOT NULL,
   predicted_impact_amount numeric,
   translations jsonb,
-  CONSTRAINT action_funding_links_pkey PRIMARY KEY (action_id, funding_entry_id),
+  CONSTRAINT action_funding_links_pkey PRIMARY KEY (funding_entry_id, action_id),
   CONSTRAINT action_funding_links_action_id_fkey FOREIGN KEY (action_id) REFERENCES agora.government_actions(id),
   CONSTRAINT action_funding_links_funding_entry_id_fkey FOREIGN KEY (funding_entry_id) REFERENCES agora.funding_entries(id)
 );
 CREATE TABLE agora.action_promises (
   action_id uuid NOT NULL,
   promise_id uuid NOT NULL,
-  CONSTRAINT action_promises_pkey PRIMARY KEY (promise_id, action_id),
+  CONSTRAINT action_promises_pkey PRIMARY KEY (action_id, promise_id),
   CONSTRAINT action_promises_action_id_fkey FOREIGN KEY (action_id) REFERENCES agora.government_actions(id),
   CONSTRAINT action_promises_promise_id_fkey FOREIGN KEY (promise_id) REFERENCES agora.promises(id)
 );
@@ -108,7 +116,7 @@ CREATE TABLE agora.action_spending_links (
   spending_item_id uuid NOT NULL,
   allocated_amount numeric NOT NULL,
   translations jsonb,
-  CONSTRAINT action_spending_links_pkey PRIMARY KEY (spending_item_id, action_id),
+  CONSTRAINT action_spending_links_pkey PRIMARY KEY (action_id, spending_item_id),
   CONSTRAINT action_spending_links_action_id_fkey FOREIGN KEY (action_id) REFERENCES agora.government_actions(id),
   CONSTRAINT action_spending_links_spending_item_id_fkey FOREIGN KEY (spending_item_id) REFERENCES agora.budget_spending_items(id)
 );
@@ -132,6 +140,18 @@ CREATE TABLE agora.assignment_statuses (
   id text NOT NULL,
   translations jsonb NOT NULL,
   CONSTRAINT assignment_statuses_pkey PRIMARY KEY (id)
+);
+CREATE TABLE agora.background_jobs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  job_type text NOT NULL,
+  status text NOT NULL DEFAULT 'PENDING'::text,
+  payload jsonb,
+  result_message text,
+  triggered_by uuid NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT background_jobs_pkey PRIMARY KEY (id),
+  CONSTRAINT background_jobs_triggered_by_fkey FOREIGN KEY (triggered_by) REFERENCES public.user_profiles(id)
 );
 CREATE TABLE agora.budget_allocations (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -358,6 +378,23 @@ CREATE TABLE agora.government_roles (
   CONSTRAINT government_roles_government_entity_id_fkey FOREIGN KEY (government_entity_id) REFERENCES agora.government_entities(id),
   CONSTRAINT government_roles_ministry_id_fkey FOREIGN KEY (ministry_id) REFERENCES agora.ministries(id)
 );
+CREATE TABLE agora.graph_edges (
+  source_node_id uuid NOT NULL,
+  target_node_id uuid NOT NULL,
+  relationship_type text NOT NULL,
+  CONSTRAINT graph_edges_pkey PRIMARY KEY (relationship_type, target_node_id, source_node_id),
+  CONSTRAINT graph_edges_source_node_id_fkey FOREIGN KEY (source_node_id) REFERENCES agora.graph_nodes(id),
+  CONSTRAINT graph_edges_target_node_id_fkey FOREIGN KEY (target_node_id) REFERENCES agora.graph_nodes(id)
+);
+CREATE TABLE agora.graph_nodes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  entity_id uuid NOT NULL,
+  entity_type text NOT NULL,
+  name text,
+  summary text,
+  embedding USER-DEFINED,
+  CONSTRAINT graph_nodes_pkey PRIMARY KEY (id)
+);
 CREATE TABLE agora.ingestion_logs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
@@ -376,14 +413,14 @@ CREATE TABLE agora.interest_types (
   CONSTRAINT interest_types_pkey PRIMARY KEY (id)
 );
 CREATE TABLE agora.law_article_references (
-  source_article_version_id uuid NOT NULL,
-  target_article_version_id uuid NOT NULL,
+  source_article_id uuid NOT NULL,
+  target_article_id uuid NOT NULL,
   reference_type text NOT NULL,
-  CONSTRAINT law_article_references_pkey PRIMARY KEY (target_article_version_id, source_article_version_id),
-  CONSTRAINT law_article_references_source_article_version_id_fkey FOREIGN KEY (source_article_version_id) REFERENCES agora.law_article_versions(id),
-  CONSTRAINT law_article_references_target_article_version_id_fkey FOREIGN KEY (target_article_version_id) REFERENCES agora.law_article_versions(id)
+  CONSTRAINT law_article_references_pkey PRIMARY KEY (target_article_id, source_article_id),
+  CONSTRAINT law_article_references_source_article_id_fkey FOREIGN KEY (source_article_id) REFERENCES agora.law_articles(id),
+  CONSTRAINT law_article_references_target_article_id_fkey FOREIGN KEY (target_article_id) REFERENCES agora.law_articles(id)
 );
-CREATE TABLE agora.law_article_versions (
+CREATE TABLE agora.law_articles (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   mandate_id uuid NOT NULL,
   status_id text NOT NULL,
@@ -395,7 +432,8 @@ CREATE TABLE agora.law_article_versions (
   article_order integer,
   tags jsonb,
   summary_embedding USER-DEFINED,
-  CONSTRAINT law_article_versions_pkey PRIMARY KEY (id),
+  cross_references jsonb,
+  CONSTRAINT law_articles_pkey PRIMARY KEY (id),
   CONSTRAINT law_article_versions_mandate_id_fkey FOREIGN KEY (mandate_id) REFERENCES agora.mandates(id),
   CONSTRAINT law_article_versions_status_id_fkey FOREIGN KEY (status_id) REFERENCES agora.law_version_statuses(id),
   CONSTRAINT law_article_versions_law_id_fkey FOREIGN KEY (law_id) REFERENCES agora.laws(id)
@@ -408,7 +446,7 @@ CREATE TABLE agora.law_categories (
 CREATE TABLE agora.law_emitting_entities (
   law_id uuid NOT NULL,
   emitting_entity_id uuid NOT NULL,
-  CONSTRAINT law_emitting_entities_pkey PRIMARY KEY (law_id, emitting_entity_id),
+  CONSTRAINT law_emitting_entities_pkey PRIMARY KEY (emitting_entity_id, law_id),
   CONSTRAINT law_emitting_entities_law_id_fkey FOREIGN KEY (law_id) REFERENCES agora.laws(id),
   CONSTRAINT law_emitting_entities_emitting_entity_id_fkey FOREIGN KEY (emitting_entity_id) REFERENCES agora.emitting_entities(id)
 );
@@ -475,6 +513,18 @@ CREATE TABLE agora.ministries (
   translations jsonb,
   CONSTRAINT ministries_pkey PRIMARY KEY (id),
   CONSTRAINT ministries_government_entity_id_fkey FOREIGN KEY (government_entity_id) REFERENCES agora.government_entities(id)
+);
+CREATE TABLE agora.notifications (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  icon_name text,
+  title text NOT NULL,
+  body text,
+  link_url text,
+  is_read boolean NOT NULL DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profiles(id)
 );
 CREATE TABLE agora.pending_extractions (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -554,7 +604,7 @@ CREATE TABLE agora.promise_spending_links (
   spending_item_id uuid NOT NULL,
   allocated_amount numeric NOT NULL,
   translations jsonb,
-  CONSTRAINT promise_spending_links_pkey PRIMARY KEY (spending_item_id, promise_id),
+  CONSTRAINT promise_spending_links_pkey PRIMARY KEY (promise_id, spending_item_id),
   CONSTRAINT promise_spending_links_promise_id_fkey FOREIGN KEY (promise_id) REFERENCES agora.promises(id),
   CONSTRAINT promise_spending_links_spending_item_id_fkey FOREIGN KEY (spending_item_id) REFERENCES agora.budget_spending_items(id)
 );
@@ -620,14 +670,14 @@ CREATE TABLE agora.report_links (
   report_id uuid NOT NULL,
   target_id uuid NOT NULL,
   target_table text NOT NULL,
-  CONSTRAINT report_links_pkey PRIMARY KEY (report_id, target_table, target_id),
+  CONSTRAINT report_links_pkey PRIMARY KEY (target_id, report_id, target_table),
   CONSTRAINT report_links_report_id_fkey FOREIGN KEY (report_id) REFERENCES agora.reports(id)
 );
 CREATE TABLE agora.report_sources (
   report_id uuid NOT NULL,
   source_id uuid NOT NULL,
   translations jsonb,
-  CONSTRAINT report_sources_pkey PRIMARY KEY (report_id, source_id),
+  CONSTRAINT report_sources_pkey PRIMARY KEY (source_id, report_id),
   CONSTRAINT report_sources_report_id_fkey FOREIGN KEY (report_id) REFERENCES agora.reports(id),
   CONSTRAINT report_sources_source_id_fkey FOREIGN KEY (source_id) REFERENCES agora.sources(id)
 );
