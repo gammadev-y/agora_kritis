@@ -368,9 +368,9 @@ Return one valid JSON object only, with this structure:
         existing_law_response = self.supabase_admin.table('laws').select('id').eq('source_id', source_id).execute()
         if existing_law_response.data:
             existing_law_id = existing_law_response.data[0]['id']
-            logger.warning(f"⚠️ Law already exists for source {source_id}. Deleting via delete_law_and_children()...")
+            logger.warning(f"⚠️ Law already exists for source {source_id}. Deleting via delete_law_by_law_id()...")
             try:
-                self.supabase_admin.rpc('delete_law_and_children', {'p_law_id': existing_law_id}).execute()
+                self.supabase_admin.rpc('delete_law_by_law_id', {'p_law_id': existing_law_id}).execute()
                 logger.info(f"🗑️ Deleted existing law {existing_law_id}")
             except Exception as e:
                 logger.error(f"❌ Failed to delete existing law: {e}")
@@ -417,7 +417,7 @@ Return one valid JSON object only, with this structure:
                 if retry_count <= max_retries:
                     logger.info(f"🔄 Deleting law {law_id} and retrying...")
                     try:
-                        self.supabase_admin.rpc('delete_law_and_children', {'p_law_id': law_id}).execute()
+                        self.supabase_admin.rpc('delete_law_by_law_id', {'p_law_id': law_id}).execute()
                         logger.info(f"🗑️ Deleted law {law_id} for retry")
                         
                         # Recreate the law record
@@ -442,11 +442,13 @@ Return one valid JSON object only, with this structure:
         """Create parent law record and return law_id."""
         metadata = extraction_data.get('metadata', {})
         
-        # Get source translations
-        source_response = self.supabase_admin.table('sources').select('translations').eq('id', source_id).execute()
+        # Get source data (translations and published_at)
+        source_response = self.supabase_admin.table('sources').select('translations, published_at').eq('id', source_id).execute()
         source_translations = {}
+        source_published_at = None
         if source_response.data:
             source_translations = source_response.data[0].get('translations', {})
+            source_published_at = source_response.data[0].get('published_at')
         
         # Hardcode Portugal government entity ID for analysis
         government_entity_id = '3ee8d3ef-7226-4bf3-8ea2-6e2e036d203f'
@@ -469,6 +471,14 @@ Return one valid JSON object only, with this structure:
         # Extract official_number with new logic
         official_number = self._extract_official_number_v50(source_id, metadata, source_translations)
         
+        # Extract enactment_date with fallback to sources.published_at
+        enactment_date = metadata.get('enactment_date')
+        if not enactment_date and source_published_at:
+            # Convert published_at to date string (YYYY-MM-DD)
+            if isinstance(source_published_at, str):
+                enactment_date = source_published_at.split('T')[0]  # Extract date part from ISO timestamp
+            logger.info(f"📅 Using sources.published_at as enactment_date: {enactment_date}")
+        
         law_data = {
             'id': str(uuid.uuid4()),
             'source_id': source_id,
@@ -477,7 +487,7 @@ Return one valid JSON object only, with this structure:
             'slug': self._generate_slug(official_number),
             'type_id': self._map_law_type(metadata.get('type', 'Lei')),
             'category_id': 'ADMINISTRATIVE',  # Will be updated by synthesis
-            'enactment_date': metadata.get('enactment_date'),
+            'enactment_date': enactment_date,
             'official_title': official_title,
             'translations': {},
             'tags': {}
@@ -486,7 +496,7 @@ Return one valid JSON object only, with this structure:
         response = self.supabase_admin.table('laws').insert(law_data).execute()
         law_id = response.data[0]['id']
         
-        logger.info(f"📜 Created law record: {law_id} with official_number: {official_number}")
+        logger.info(f"📜 Created law record: {law_id} with official_number: {official_number}, enactment_date: {enactment_date}")
         
         return law_id
     
