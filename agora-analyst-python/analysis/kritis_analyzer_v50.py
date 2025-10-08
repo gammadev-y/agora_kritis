@@ -266,9 +266,14 @@ DOCUMENT:
         
         # The Kritis V5.0 Master Prompt from LawArticleRelationships.md
         analysis_prompt = f"""
-You are "Kritis," an expert legal analyst. Deconstruct the provided legal article into a single, valid JSON object (no other text). Follow the CRITICAL INSTRUCTIONS strictly.
+You are "Kritis," an expert legal analyst for the Agora platform. Your task is to deconstruct the following legal article into a highly structured JSON object, following the style guide precisely.
+STYLE GUIDE:
+    Plain Language: Use simple, everyday words. Avoid legal jargon entirely.
+    Concise Structure: Use bullet points (-) to break down conditions, rules, or lists.
+    Helpful, Human Tone: Explain concepts clearly, as if to a knowledgeable friend.
+    No Intros: NEVER start a summary with phrases like "This article is about" or "In summary." Go directly to the core explanation.
 
-CRITICAL INSTRUCTIONS:
+CROSS REFERENCES:
 - Meticulously identify all references to other legal articles or laws. References may appear as hyperlinks (<a> tags) or as phrases like "n.º X do artigo Y" or "Decreto-Lei n.º Z".
 - For each reference, extract:
     - relationship (e.g., "cites", "amends", "revokes", "references_internal")
@@ -334,6 +339,33 @@ Return one valid JSON object only, with this structure:
                 analysis['tags'] = {"person": [], "organization": [], "concept": []}
             if 'cross_references' not in analysis:
                 analysis['cross_references'] = []
+            if 'analysis' not in analysis:
+                analysis['analysis'] = {
+                    "pt": {"informal_summary_title": "", "informal_summary": ""}, 
+                    "en": {"informal_summary_title": "", "informal_summary": ""}
+                }
+            
+            # Validate that summaries are not just copied text
+            # Check if PT summary is too similar to original content (just removed newlines)
+            analysis_data = analysis.get('analysis', {})
+            pt_data = analysis_data.get('pt', {})
+            pt_summary = pt_data.get('informal_summary', '')
+            
+            # Remove formatting differences for comparison
+            content_normalized = content.replace('\n\n', ' ').replace('\n', ' ').strip()
+            summary_normalized = pt_summary.replace('\n\n', ' ').replace('\n', ' ').strip()
+            
+            # If summary is just the content with spaces instead of newlines, it's not a real summary
+            if content_normalized and summary_normalized and len(summary_normalized) > 50:
+                # Calculate similarity ratio (simple approach: check if one contains most of the other)
+                similarity = len(set(content_normalized.split()) & set(summary_normalized.split())) / max(len(content_normalized.split()), len(summary_normalized.split()))
+                
+                if similarity > 0.85:  # More than 85% word overlap means it's likely just copied
+                    logger.warning(f"⚠️ AI returned copied text instead of summary (similarity: {similarity:.2%}). Marking as invalid.")
+                    analysis['analysis'] = {
+                        "pt": {"informal_summary_title": "", "informal_summary": ""}, 
+                        "en": {"informal_summary_title": "", "informal_summary": ""}
+                    }
             
             return analysis
             
