@@ -390,16 +390,46 @@ Return one valid JSON object only, with this structure:
         law_id = self._create_parent_law_v50(source_id, extraction_data)
         law_enactment_date = extraction_data.get('metadata', {}).get('enactment_date')
         
-        # Step 2: Process articles with immediate relationship linking
-        relationships_created = self._process_articles_with_relationships_v50(
-            law_id, 
-            law_enactment_date,
-            extraction_data, 
-            analysis_data
-        )
+        # Step 2-3: Process articles and aggregate tags with retry logic
+        max_retries = 1
+        retry_count = 0
         
-        # Step 3: Aggregate tags
-        self._aggregate_tags_v50(law_id)
+        while retry_count <= max_retries:
+            try:
+                # Step 2: Process articles with immediate relationship linking
+                relationships_created = self._process_articles_with_relationships_v50(
+                    law_id, 
+                    law_enactment_date,
+                    extraction_data, 
+                    analysis_data
+                )
+                
+                # Step 3: Aggregate tags
+                self._aggregate_tags_v50(law_id)
+                
+                # Success - break out of retry loop
+                break
+                
+            except Exception as e:
+                retry_count += 1
+                logger.error(f"❌ Error processing articles for law {law_id} (attempt {retry_count}/{max_retries + 1}): {e}")
+                
+                if retry_count <= max_retries:
+                    logger.info(f"🔄 Deleting law {law_id} and retrying...")
+                    try:
+                        self.supabase_admin.rpc('delete_law_and_children', {'p_law_id': law_id}).execute()
+                        logger.info(f"🗑️ Deleted law {law_id} for retry")
+                        
+                        # Recreate the law record
+                        law_id = self._create_parent_law_v50(source_id, extraction_data)
+                        logger.info(f"📜 Recreated law record: {law_id}")
+                        
+                    except Exception as delete_error:
+                        logger.error(f"❌ Failed to delete law for retry: {delete_error}")
+                        raise e  # Re-raise original error
+                else:
+                    logger.error(f"❌ All retry attempts failed for law {law_id}")
+                    raise e  # Re-raise the last error
         
         logger.info(f"✅ Knowledge graph built: {relationships_created['law_relationships']} law relationships, {relationships_created['article_references']} article references")
         
@@ -412,33 +442,25 @@ Return one valid JSON object only, with this structure:
         """Create parent law record and return law_id."""
         metadata = extraction_data.get('metadata', {})
         
+        # Get source translations
+        source_response = self.supabase_admin.table('sources').select('translations').eq('id', source_id).execute()
+        source_translations = {}
+        if source_response.data:
+            source_translations = source_response.data[0].get('translations', {})
+        
         # Hardcode Portugal government entity ID for analysis
         government_entity_id = '3ee8d3ef-7226-4bf3-8ea2-6e2e036d203f'
         
-        # Extract official_number from document (Type + Number)
-        # Example: "Decreto-Lei n.º 71/2007" -> "71/2007"
-        official_number = metadata.get('official_number', '')
+        # Extract official_title from sources.translations.pt, clean special characters
+        official_title = 'Untitled Law'
+        if 'pt' in source_translations:
+            pt_title = source_translations['pt']
+            # Remove # and other unwanted characters
+            official_title = re.sub(r'[#$@&*]', '', pt_title).strip()
+            logger.info(f"📋 Using official_title from sources.translations.pt: {official_title}")
         
-        # If official_number is empty, try to extract from first chunk or source
-        if not official_number:
-            try:
-                # Try to get from document chunks
-                chunks_response = self.supabase_admin.table('document_chunks').select('content').eq('source_id', source_id).order('chunk_index').limit(1).execute()
-                if chunks_response.data:
-                    first_chunk = chunks_response.data[0]['content']
-                    # Try to extract pattern - match any common legal document type
-                    import re
-                    match = re.search(r'(?:Decreto-Lei|Lei Constitucional|Lei Orgânica|Lei|Decreto Legislativo Regional|Decreto Regional|Decreto Regulamentar|Decreto|Portaria|Resolução|Despacho|Aviso|Acórdão|Regulamento|Tratado|Acordo)[^\d]*n\.?º?\s*(\d+[-/]\d{4}(?:-[A-Z])?)', first_chunk, re.IGNORECASE)
-                    if match:
-                        official_number = match.group(1)
-                        logger.info(f"📋 Extracted official_number from content: {official_number}")
-            except Exception as e:
-                logger.warning(f"⚠️ Could not extract official_number from chunks: {e}")
-        
-        # Final fallback
-        if not official_number:
-            official_number = source_id[:8]  # Use first 8 chars of UUID
-            logger.warning(f"⚠️ Using fallback official_number: {official_number}")
+        # Extract official_number with new logic
+        official_number = self._extract_official_number_v50(source_id, metadata, source_translations)
         
         law_data = {
             'id': str(uuid.uuid4()),
@@ -449,7 +471,7 @@ Return one valid JSON object only, with this structure:
             'type_id': self._map_law_type(metadata.get('type', 'Lei')),
             'category_id': 'ADMINISTRATIVE',  # Will be updated by synthesis
             'enactment_date': metadata.get('enactment_date'),
-            'official_title': metadata.get('official_title', 'Untitled Law'),
+            'official_title': official_title,
             'translations': {},
             'tags': {}
         }
@@ -460,6 +482,103 @@ Return one valid JSON object only, with this structure:
         logger.info(f"📜 Created law record: {law_id} with official_number: {official_number}")
         
         return law_id
+    
+    def _extract_official_number_v50(self, source_id: str, metadata: Dict[str, Any], source_translations: Dict[str, Any]) -> str:
+        """Extract official_number with new logic prioritizing last document chunk."""
+        
+        # First priority: isolated number from last document chunk
+        try:
+            chunks_response = self.supabase_admin.table('document_chunks').select('content').eq('source_id', source_id).order('chunk_index', desc=True).limit(1).execute()
+            if chunks_response.data:
+                last_chunk = chunks_response.data[0]['content']
+                # Look for isolated numbers (like "119617986") - prefer longer sequences
+                isolated_numbers = re.findall(r'\b(\d{6,})\b', last_chunk)
+                if isolated_numbers:
+                    # Take the longest isolated number
+                    official_number = max(isolated_numbers, key=len)
+                    logger.info(f"📋 Extracted official_number from last chunk isolated number: {official_number}")
+                    return official_number
+        except Exception as e:
+            logger.warning(f"⚠️ Could not extract from last chunk: {e}")
+        
+        # Second priority: law type (pt translation) + nº + numbers from sources.translations pt title
+        if 'pt' in source_translations:
+            pt_title = source_translations['pt']
+            # Extract law type from metadata
+            law_type = metadata.get('type', 'Lei')
+            # Map to Portuguese translation
+            law_type_pt = self._get_law_type_pt_translation(law_type)
+            
+            # Extract numbers from pt title
+            numbers_in_title = re.findall(r'\d+[-/]\d{4}(?:-[A-Z])?|\d{4,}', pt_title)
+            if numbers_in_title:
+                # Take the first number found
+                number_part = numbers_in_title[0]
+                official_number = f"{law_type_pt} nº {number_part}"
+                logger.info(f"📋 Constructed official_number from pt title: {official_number}")
+                return official_number
+        
+        # Third priority: original metadata extraction
+        official_number = metadata.get('official_number', '')
+        if official_number:
+            logger.info(f"📋 Using official_number from metadata: {official_number}")
+            return official_number
+        
+        # Fourth priority: extract from first chunk
+        try:
+            chunks_response = self.supabase_admin.table('document_chunks').select('content').eq('source_id', source_id).order('chunk_index').limit(1).execute()
+            if chunks_response.data:
+                first_chunk = chunks_response.data[0]['content']
+                match = re.search(r'(?:Decreto-Lei|Lei Constitucional|Lei Orgânica|Lei|Decreto Legislativo Regional|Decreto Regional|Decreto Regulamentar|Decreto|Portaria|Resolução|Despacho|Aviso|Acórdão|Regulamento|Tratado|Acordo)[^\d]*n\.?º?\s*(\d+[-/]\d{4}(?:-[A-Z])?)', first_chunk, re.IGNORECASE)
+                if match:
+                    official_number = match.group(1)
+                    logger.info(f"📋 Extracted official_number from first chunk: {official_number}")
+                    return official_number
+        except Exception as e:
+            logger.warning(f"⚠️ Could not extract from first chunk: {e}")
+        
+        # Final fallback
+        official_number = source_id[:8]
+        logger.warning(f"⚠️ Using fallback official_number: {official_number}")
+        return official_number
+    
+    def _get_law_type_pt_translation(self, law_type: str) -> str:
+        """Get Portuguese translation of law type for official_number construction."""
+        # Map database IDs back to Portuguese names
+        type_mapping_pt = {
+            'DECRETO_LEI': 'Decreto-Lei',
+            'LEI': 'Lei',
+            'LEI_CONSTITUCIONAL': 'Lei Constitucional',
+            'LEI_ORGANICA': 'Lei Orgânica',
+            'DECRETO': 'Decreto',
+            'DECRETO_LEGISLATIVO_REGIONAL': 'Decreto Legislativo Regional',
+            'DECRETO_REGIONAL': 'Decreto Regional',
+            'DECRETO_REGULAMENTAR': 'Decreto Regulamentar',
+            'DECRETO_REGULAMENTAR_REGIONAL': 'Decreto Regulamentar Regional',
+            'DECRETO_GOVERNO': 'Decreto do Governo',
+            'DECRETO_PR': 'Decreto do Presidente da República',
+            'DECRETO_APROVACAO_CONSTITUICAO': 'Decreto de Aprovação da Constituição',
+            'PORTARIA': 'Portaria',
+            'DESPACHO': 'Despacho',
+            'DESPACHO_CONJUNTO': 'Despacho Conjunto',
+            'DESPACHO_NORMATIVO': 'Despacho Normativo',
+            'AVISO': 'Aviso',
+            'AVISO_BP': 'Aviso do Banco de Portugal',
+            'RESOLUCAO': 'Resolução',
+            'RESOLUCAO_AR': 'Resolução da Assembleia da República',
+            'RESOLUCAO_CM': 'Resolução do Conselho de Ministros',
+            'ACORDAO': 'Acórdão',
+            'REGULAMENTO': 'Regulamento',
+            'TRATADO': 'Tratado',
+            'ACORDO': 'Acordo'
+        }
+        
+        # If law_type is already a Portuguese name, return it
+        if law_type in type_mapping_pt.values():
+            return law_type
+        
+        # Otherwise map from database ID
+        return type_mapping_pt.get(law_type, 'Lei')
     
     def _generate_slug(self, official_number: str) -> str:
         """Generate URL-safe slug from official number."""
