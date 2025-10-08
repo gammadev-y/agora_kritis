@@ -407,8 +407,8 @@ Return one valid JSON object only, with this structure:
                     analysis_data
                 )
                 
-                # Step 3: Aggregate tags
-                self._aggregate_tags_v50(law_id)
+                # Step 3: Aggregate tags and add preamble translations
+                self._aggregate_tags_v50(law_id, analysis_data)
                 
                 # Success - break out of retry loop
                 break
@@ -482,13 +482,20 @@ Return one valid JSON object only, with this structure:
                 enactment_date = source_published_at.split('T')[0]  # Extract date part from ISO timestamp
             logger.info(f"📅 Using sources.published_at as enactment_date: {enactment_date}")
         
+        # Determine law type - if CRP, override to CONSTITUTION
+        if official_number == 'CRP':
+            type_id = 'CONSTITUTION'
+            logger.info(f"📜 Detected CRP document, setting type_id to CONSTITUTION")
+        else:
+            type_id = self._map_law_type(metadata.get('type', 'Lei'))
+        
         law_data = {
             'id': str(uuid.uuid4()),
             'source_id': source_id,
             'government_entity_id': government_entity_id,
             'official_number': official_number,
             'slug': self._generate_slug(official_number),
-            'type_id': self._map_law_type(metadata.get('type', 'Lei')),
+            'type_id': type_id,
             'category_id': 'ADMINISTRATIVE',  # Will be updated by synthesis
             'enactment_date': enactment_date,
             'official_title': official_title,
@@ -788,12 +795,67 @@ Return one valid JSON object only, with this structure:
             # The analysis object has: {tags: {}, analysis: {pt: {}, en: {}}, cross_references: []}
             translations = analysis.get('analysis', {})
             
-            # Ensure translations is not empty - if empty, create minimal structure
+            # Ensure translations is not empty or "..." - if so, create minimal structure
+            is_invalid_translation = False
             if not translations or (not translations.get('pt') and not translations.get('en')):
-                logger.warning(f"⚠️ No translations found for article {article_order}, creating minimal structure")
+                is_invalid_translation = True
+            else:
+                # Safely extract values with None handling
+                pt_dict = translations.get('pt') or {}
+                en_dict = translations.get('en') or {}
+                
+                pt_summary = (pt_dict.get('informal_summary') or '').strip()
+                en_summary = (en_dict.get('informal_summary') or '').strip()
+                pt_title = (pt_dict.get('informal_summary_title') or '').strip()
+                en_title = (en_dict.get('informal_summary_title') or '').strip()
+                
+                # Check for invalid summaries or missing titles
+                if pt_summary in ['', '...'] or en_summary in ['', '...']:
+                    is_invalid_translation = True
+                elif not pt_title or not en_title or pt_title == '[informal_summary_title not found]' or en_title == '[informal_summary_title not found]':
+                    is_invalid_translation = True
+            
+            if is_invalid_translation:
+                logger.warning(f"⚠️ Invalid or empty translations for article {article_order}, creating minimal structure from official text")
+                # Use first 200 chars of official text as fallback summary
+                fallback_summary = official_text[:200] + ('...' if len(official_text) > 200 else '')
+                
+                # Try to extract a title from the official text (first line or first sentence)
+                fallback_title_pt = "Sem título"
+                fallback_title_en = "Untitled"
+                
+                # Look for text in parentheses or first line as potential title
+                import re
+                title_match = re.search(r'\*\*\((.*?)\)\*\*', official_text)
+                if title_match:
+                    fallback_title_pt = title_match.group(1)
+                    fallback_title_en = f"[Translation pending] {title_match.group(1)}"
+                else:
+                    # Try to extract meaningful title from content
+                    # Remove leading dash and article number prefix (e.g., "- ", "1 - ", "2 - ", "X - ")
+                    text_clean = re.sub(r'^[-–]\s*', '', official_text)  # Remove leading dash
+                    text_clean = re.sub(r'^\d+\s*[-–]\s*', '', text_clean)  # Remove number + dash
+                    text_clean = text_clean.strip()
+                    
+                    # Extract first verb phrase or meaningful chunk (up to first period, comma, or newline)
+                    # Split by newline first, then by period or comma
+                    first_line = text_clean.split('\n')[0]
+                    first_sentence = re.split(r'[,\.]', first_line)[0].strip()
+                    
+                    # Take first 60 chars as title
+                    if first_sentence and len(first_sentence) > 0:
+                        fallback_title_pt = first_sentence[:60] + ('...' if len(first_sentence) > 60 else '')
+                        fallback_title_en = f"[Translation pending] {fallback_title_pt}"
+                
                 translations = {
-                    'pt': {'informal_summary_title': f'Artigo {article_order}', 'informal_summary': ''},
-                    'en': {'informal_summary_title': f'Article {article_order}', 'informal_summary': ''}
+                    'pt': {
+                        'informal_summary_title': fallback_title_pt, 
+                        'informal_summary': fallback_summary
+                    },
+                    'en': {
+                        'informal_summary_title': fallback_title_en, 
+                        'informal_summary': f'[Translation pending] {fallback_summary}'
+                    }
                 }
             
             article_data = {
@@ -1079,8 +1141,8 @@ Return one valid JSON object only, with this structure:
         except Exception as e:
             logger.warning(f"⚠️ Failed to update article status: {e}")
     
-    def _aggregate_tags_v50(self, law_id: str) -> None:
-        """Aggregate tags from all articles to parent law."""
+    def _aggregate_tags_v50(self, law_id: str, analysis_data: Dict[str, Any]) -> None:
+        """Aggregate tags from all articles to parent law and add preamble translations."""
         # Get all tags from articles
         articles_response = self.supabase_admin.table('law_articles').select('tags').eq('law_id', law_id).execute()
         
@@ -1107,9 +1169,24 @@ Return one valid JSON object only, with this structure:
                                     unique_tags[category].add(tag)
                                     aggregated_tags[category].append(tag)
         
-        # Update parent law
-        self.supabase_admin.table('laws').update({
-            'tags': aggregated_tags
-        }).eq('id', law_id).execute()
+        # Extract preamble translations for law record
+        law_translations = {}
+        analysis_results = analysis_data.get('analysis_results', [])
+        for analysis_item in analysis_results:
+            if analysis_item['content_type'] == 'preamble':
+                preamble_analysis = analysis_item['analysis']
+                # Extract translations from preamble analysis
+                translations = preamble_analysis.get('analysis', {})
+                if translations and (translations.get('pt') or translations.get('en')):
+                    law_translations = translations
+                    logger.info(f"📝 Adding preamble translations to law record")
+                break
+        
+        # Update parent law with tags and translations
+        update_data = {'tags': aggregated_tags}
+        if law_translations:
+            update_data['translations'] = law_translations
+        
+        self.supabase_admin.table('laws').update(update_data).eq('id', law_id).execute()
         
         logger.info(f"📊 Aggregated tags: {len(aggregated_tags['person'])} persons, {len(aggregated_tags['organization'])} orgs, {len(aggregated_tags['concept'])} concepts")
