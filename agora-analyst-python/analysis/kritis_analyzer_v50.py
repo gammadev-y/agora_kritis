@@ -99,12 +99,13 @@ class KritisAnalyzerV50:
         """Extract law metadata from text."""
         metadata = {}
         
-        # Extract law type and number
-        type_pattern = r'(Decreto-Lei|Lei|Decreto Legislativo Regional|Portaria|Resolução)\s+n\.º\s+(\d+[-/]\d+)'
+        # Extract law type and number with expanded pattern to catch more document types
+        # Pattern matches common Portuguese legal document formats
+        type_pattern = r'((?:Decreto-Lei|Lei Constitucional|Lei Orgânica|Lei|Decreto Legislativo Regional|Decreto Regional|Decreto Regulamentar Regional|Decreto Regulamentar|Decreto do Governo|Decreto do Presidente da República|Decreto|Portaria|Resolução da Assembleia da República|Resolução do Conselho de Ministros|Resolução|Despacho Conjunto|Despacho Normativo|Despacho|Aviso do Banco de Portugal|Aviso|Acórdão do Tribunal Constitucional|Acórdão do Supremo Tribunal de Justiça|Acórdão do Supremo Tribunal Administrativo|Acórdão do Tribunal de Contas|Acórdão doutrinário|Acórdão|Regulamento|Regimento|Convenção|Tratado|Acordo|Protocolo))\s+n\.?º?\s*(\d+[-/]\d+(?:-[A-Z])?)'
         type_match = re.search(type_pattern, text, re.IGNORECASE)
         if type_match:
-            metadata['type'] = type_match.group(1)
-            metadata['official_number'] = type_match.group(2)
+            metadata['type'] = type_match.group(1).strip()
+            metadata['official_number'] = type_match.group(2).strip()
         
         # Extract date
         date_pattern = r'de\s+(\d{1,2})\s+de\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s+de\s+(\d{4})'
@@ -425,9 +426,9 @@ Return one valid JSON object only, with this structure:
                 chunks_response = self.supabase_admin.table('document_chunks').select('content').eq('source_id', source_id).order('chunk_index').limit(1).execute()
                 if chunks_response.data:
                     first_chunk = chunks_response.data[0]['content']
-                    # Try to extract pattern like "Decreto-Lei n.º 71/2007" or "Lei n.º 3/2004"
+                    # Try to extract pattern - match any common legal document type
                     import re
-                    match = re.search(r'(?:Decreto-Lei|Lei|Resolução|Portaria)[^\d]*n\.?º?\s*(\d+/\d{4})', first_chunk, re.IGNORECASE)
+                    match = re.search(r'(?:Decreto-Lei|Lei Constitucional|Lei Orgânica|Lei|Decreto Legislativo Regional|Decreto Regional|Decreto Regulamentar|Decreto|Portaria|Resolução|Despacho|Aviso|Acórdão|Regulamento|Tratado|Acordo)[^\d]*n\.?º?\s*(\d+[-/]\d{4}(?:-[A-Z])?)', first_chunk, re.IGNORECASE)
                     if match:
                         official_number = match.group(1)
                         logger.info(f"📋 Extracted official_number from content: {official_number}")
@@ -467,15 +468,130 @@ Return one valid JSON object only, with this structure:
         return f"{slug}-{uuid.uuid4().hex[:8]}"
     
     def _map_law_type(self, type_str: str) -> str:
-        """Map law type string to type_id."""
+        """
+        Map law type string to type_id using static lookup.
+        This avoids database calls since law_types is static reference data.
+        
+        If type is not found in mapping, returns 'OTHER' as fallback.
+        The Kritis prompt should already try to identify the law_type,
+        so this mapping handles edge cases and variations.
+        """
+        # Normalize input - remove extra whitespace and convert to title case
+        type_str_normalized = ' '.join(type_str.split()).strip()
+        
+        # Comprehensive mapping of Portuguese law types to database IDs
+        # Based on complete law_types table reference data
         type_mapping = {
-            'Decreto-Lei': 'DECREE_LAW',
-            'Lei': 'LAW',
-            'Decreto Legislativo Regional': 'REGIONAL_DECREE',
-            'Portaria': 'ORDINANCE',
-            'Resolução': 'RESOLUTION'
+            # Primary law types
+            'Decreto-Lei': 'DECRETO_LEI',
+            'Lei': 'LEI',
+            'Lei Constitucional': 'LEI_CONSTITUCIONAL',
+            'Lei Orgânica': 'LEI_ORGANICA',
+            
+            # Decrees
+            'Decreto': 'DECRETO',
+            'Decreto Legislativo Regional': 'DECRETO_LEGISLATIVO_REGIONAL',
+            'Decreto Regional': 'DECRETO_REGIONAL',
+            'Decreto Regulamentar': 'DECRETO_REGULAMENTAR',
+            'Decreto Regulamentar Regional': 'DECRETO_REGULAMENTAR_REGIONAL',
+            'Decreto do Governo': 'DECRETO_GOVERNO',
+            'Decreto do Presidente da República': 'DECRETO_PR',
+            'Decreto de Aprovação da Constituição': 'DECRETO_APROVACAO_CONSTITUICAO',
+            
+            # Administrative acts
+            'Portaria': 'PORTARIA',
+            'Despacho': 'DESPACHO',
+            'Despacho Conjunto': 'DESPACHO_CONJUNTO',
+            'Despacho Normativo': 'DESPACHO_NORMATIVO',
+            'Aviso': 'AVISO',
+            'Aviso do Banco de Portugal': 'AVISO_BP',
+            'Edital': 'EDITAL',
+            'Alvará': 'ALVARA',
+            
+            # Resolutions
+            'Resolução': 'RESOLUCAO',
+            'Resolução da Assembleia da República': 'RESOLUCAO_AR',
+            'Resolução do Conselho de Ministros': 'RESOLUCAO_CM',
+            
+            # Jurisprudence
+            'Acórdão': 'ACORDAO',
+            'Acórdão do Tribunal Constitucional': 'ACORDAO_TC',
+            'Acórdão do Supremo Tribunal de Justiça': 'ACORDAO_STJ',
+            'Acórdão do Supremo Tribunal Administrativo': 'ACORDAO_STA',
+            'Acórdão do Tribunal de Contas': 'ACORDAO_T_CONTAS',
+            'Acórdão doutrinário': 'ACORDAO_DOUTRINARIO',
+            'Assento': 'ASSENTO',
+            
+            # Constitutional documents
+            'Constituição': 'CONSTITUTION',
+            'Carta Constitucional': 'CARTA_CONSTITUCIONAL',
+            'Revisão Constitucional': 'CONSTITUTIONAL_REVISION',
+            
+            # International
+            'Tratado': 'TRATADO',
+            'Convenção': 'CONVENCAO',
+            'Acordo': 'ACORDO',
+            'Protocolo': 'PROTOCOLO',
+            'Protocolo de acordo': 'PROTOCOLO',
+            
+            # Regulatory and organizational
+            'Regulamento': 'REGULAMENTO',
+            'Regimento': 'REGIMENTO',
+            'Instrução': 'INSTRUCAO',
+            'Circular': 'CIRCULAR',
+            
+            # Other administrative
+            'Deliberação': 'DELIBERACAO',
+            'Decisão': 'DECISAO',
+            'Declaração': 'DECLARACAO',
+            'Declaração de Retificação': 'DECLARACAO_RETIFICACAO',
+            'Errata': 'ERRATA',
+            'Comunicação': 'COMUNICACAO',
+            'Anúncio': 'ANUNCIO',
+            
+            # Parliamentary and governmental
+            'Moção': 'MOCAO',
+            'Moção de Confiança': 'MOCAO_CONFIANCA',
+            'Moção de Censura': 'MOCAO_CENSURA',
+            'Parecer': 'PARECER',
+            'Programa': 'PROGRAMA',
+            
+            # Accession and ratification
+            'Carta de Adesão': 'CARTA_ADESAO',
+            'Carta de Ratificação': 'CARTA_RATIFICACAO',
+            'Contrato': 'CONTRATO',
+            'Aditamento': 'ADITAMENTO',
+            'Alteração': 'ALTERACAO',
+            
+            # Reference materials
+            'Lista': 'LISTA',
+            'Mapa': 'MAPA',
+            'Mapa Oficial': 'MAPA_OFICIAL',
+            
+            # Case insensitive English equivalents (for compatibility)
+            'Constitution': 'CONSTITUTION',
+            'Decree-Law': 'DECRETO_LEI',
+            'Law': 'LEI',
+            'Ordinance': 'PORTARIA',
+            'Resolution': 'RESOLUCAO',
+            'Regulation': 'REGULAMENTO',
+            'Treaty': 'TRATADO',
+            'Agreement': 'ACORDO',
         }
-        return type_mapping.get(type_str, 'LAW')
+        
+        # Try exact match first
+        if type_str_normalized in type_mapping:
+            return type_mapping[type_str_normalized]
+        
+        # Try case-insensitive match
+        type_str_lower = type_str_normalized.lower()
+        for key, value in type_mapping.items():
+            if key.lower() == type_str_lower:
+                return value
+        
+        # Fallback to OTHER if no match found
+        logger.warning(f"⚠️ Unknown law type '{type_str}', defaulting to OTHER")
+        return 'OTHER'
     
     def _process_articles_with_relationships_v50(
         self, 
