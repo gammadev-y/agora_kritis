@@ -454,10 +454,17 @@ Return one valid JSON object only, with this structure:
         # Extract official_title from sources.translations.pt, clean special characters
         official_title = 'Untitled Law'
         if 'pt' in source_translations:
-            pt_title = source_translations['pt']
-            # Remove # and other unwanted characters
-            official_title = re.sub(r'[#$@&*]', '', pt_title).strip()
-            logger.info(f"📋 Using official_title from sources.translations.pt: {official_title}")
+            pt_data = source_translations['pt']
+            # Handle both dict and string formats
+            if isinstance(pt_data, dict):
+                pt_title = pt_data.get('title', '')
+            else:
+                pt_title = str(pt_data)
+            
+            if pt_title:
+                # Remove # and other unwanted characters
+                official_title = re.sub(r'[#$@&*]', '', pt_title).strip()
+                logger.info(f"📋 Using official_title from sources.translations.pt: {official_title}")
         
         # Extract official_number with new logic
         official_number = self._extract_official_number_v50(source_id, metadata, source_translations)
@@ -503,20 +510,27 @@ Return one valid JSON object only, with this structure:
         
         # Second priority: law type (pt translation) + nº + numbers from sources.translations pt title
         if 'pt' in source_translations:
-            pt_title = source_translations['pt']
-            # Extract law type from metadata
-            law_type = metadata.get('type', 'Lei')
-            # Map to Portuguese translation
-            law_type_pt = self._get_law_type_pt_translation(law_type)
+            pt_data = source_translations['pt']
+            # Handle both dict and string formats
+            if isinstance(pt_data, dict):
+                pt_title = pt_data.get('title', '')
+            else:
+                pt_title = str(pt_data)
             
-            # Extract numbers from pt title
-            numbers_in_title = re.findall(r'\d+[-/]\d{4}(?:-[A-Z])?|\d{4,}', pt_title)
-            if numbers_in_title:
-                # Take the first number found
-                number_part = numbers_in_title[0]
-                official_number = f"{law_type_pt} nº {number_part}"
-                logger.info(f"📋 Constructed official_number from pt title: {official_number}")
-                return official_number
+            if pt_title:
+                # Extract law type from metadata
+                law_type = metadata.get('type', 'Lei')
+                # Map to Portuguese translation
+                law_type_pt = self._get_law_type_pt_translation(law_type)
+                
+                # Extract numbers from pt title
+                numbers_in_title = re.findall(r'\d+[-/]\d{4}(?:-[A-Z])?|\d{4,}', pt_title)
+                if numbers_in_title:
+                    # Take the first number found
+                    number_part = numbers_in_title[0]
+                    official_number = f"{law_type_pt} nº {number_part}"
+                    logger.info(f"📋 Constructed official_number from pt title: {official_number}")
+                    return official_number
         
         # Third priority: original metadata extraction
         official_number = metadata.get('official_number', '')
