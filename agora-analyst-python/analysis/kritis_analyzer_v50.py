@@ -506,6 +506,17 @@ Return one valid JSON object only, with this structure:
     def _extract_official_number_v50(self, source_id: str, metadata: Dict[str, Any], source_translations: Dict[str, Any]) -> str:
         """Extract official_number with new logic prioritizing last document chunk."""
         
+        # Special case: Check if this is a Constitutional document (CRP)
+        if 'pt' in source_translations:
+            pt_data = source_translations['pt']
+            pt_title = pt_data.get('title', '') if isinstance(pt_data, dict) else str(pt_data)
+            
+            # If it's a Constitutional document, use "CRP" as the official number
+            if 'Constituição da República Portuguesa' in pt_title or 'CRP' in pt_title:
+                official_number = 'CRP'
+                logger.info(f"📋 Detected Constitutional document, using official_number: {official_number}")
+                return official_number
+        
         # First priority: isolated number from last document chunk
         try:
             chunks_response = self.supabase_admin.table('document_chunks').select('content').eq('source_id', source_id).order('chunk_index', desc=True).limit(1).execute()
@@ -772,6 +783,19 @@ Return one valid JSON object only, with this structure:
             # Create law_article record with cross_references
             # Use law's enactment_date as valid_from (articles are valid from the law's enactment date)
             article_id = str(uuid.uuid4())
+            
+            # Extract translations from analysis structure
+            # The analysis object has: {tags: {}, analysis: {pt: {}, en: {}}, cross_references: []}
+            translations = analysis.get('analysis', {})
+            
+            # Ensure translations is not empty - if empty, create minimal structure
+            if not translations or (not translations.get('pt') and not translations.get('en')):
+                logger.warning(f"⚠️ No translations found for article {article_order}, creating minimal structure")
+                translations = {
+                    'pt': {'informal_summary_title': f'Artigo {article_order}', 'informal_summary': ''},
+                    'en': {'informal_summary_title': f'Article {article_order}', 'informal_summary': ''}
+                }
+            
             article_data = {
                 'id': article_id,
                 'law_id': law_id,
@@ -782,7 +806,7 @@ Return one valid JSON object only, with this structure:
                 'valid_to': None,
                 'official_text': official_text,
                 'tags': analysis.get('tags', {}),
-                'translations': analysis.get('analysis', {}),
+                'translations': translations,
                 'cross_references': analysis.get('cross_references', [])
             }
             
