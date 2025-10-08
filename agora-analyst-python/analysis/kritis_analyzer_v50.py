@@ -388,7 +388,10 @@ Return one valid JSON object only, with this structure:
         
         # Step 1: Create parent law record
         law_id = self._create_parent_law_v50(source_id, extraction_data)
-        law_enactment_date = extraction_data.get('metadata', {}).get('enactment_date')
+        
+        # Get the actual enactment_date from the created law record
+        law_response = self.supabase_admin.table('laws').select('enactment_date').eq('id', law_id).execute()
+        law_enactment_date = law_response.data[0]['enactment_date'] if law_response.data else None
         
         # Step 2-3: Process articles and aggregate tags with retry logic
         max_retries = 1
