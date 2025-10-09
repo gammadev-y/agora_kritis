@@ -266,7 +266,15 @@ DOCUMENT:
         
         # The Kritis V5.0 Master Prompt from LawArticleRelationships.md
         analysis_prompt = f"""
-You are "Kritis," an expert legal analyst for the Agora platform. Your task is to deconstruct the following legal article into a highly structured JSON object, following the style guide precisely.
+You are "Kritis," an expert legal analyst for the Agora platform. Your task is to deconstruct the following Portuguese legal article into a highly structured JSON object.
+
+LANGUAGE REQUIREMENTS:
+    ⚠️ You MUST provide translations in BOTH languages ⚠️
+    ⚠️ DO NOT MIX LANGUAGES ⚠️
+
+FORMATTING REQUIREMENTS:
+    - Use \n to separate paragraphs 
+
 STYLE GUIDE:
     Plain Language: Use simple, everyday words. Avoid legal jargon entirely.
     Concise Structure: Use bullet points (-) to break down conditions, rules, or lists.
@@ -287,22 +295,22 @@ ARTICLE TEXT TO ANALYZE:
 {content}
 
 OUTPUT:
-Return one valid JSON object only, with this structure:
+Return one valid JSON object only, with this EXACT structure:
 
 {{
     "tags": {{
-        "person": [],
-        "organization": [],
-        "concept": []
+        "person": ["original person name"],
+        "organization": ["original organization name"],
+        "concept": ["original concept name"]
     }},
     "analysis": {{
         "pt": {{
-            "informal_summary_title": "",
-            "informal_summary": ""
+            "informal_summary_title": "Título em Português",
+            "informal_summary": "Resumo completo em Português"
         }},
         "en": {{
-            "informal_summary_title": "",
-            "informal_summary": ""
+            "informal_summary_title": "Title in English",
+            "informal_summary": "Complete summary in English"
         }}
     }},
     "cross_references": [
@@ -312,11 +320,6 @@ Return one valid JSON object only, with this structure:
             "number": "19478",
             "article_number": "14.º",
             "url": "https://diariodarepublica.pt/dr/detalhe/decreto/19478-1931-211983"
-        }},
-        {{
-            "relationship": "references_internal",
-            "article_number": "2",
-            "url": null
         }}
     ]
 }}
@@ -326,6 +329,13 @@ Return one valid JSON object only, with this structure:
             response = self.model.generate_content(analysis_prompt)
             analysis_text = response.text.strip()
             
+            # LOG RAW RESPONSE
+            logger.info("="*80)
+            logger.info(f"🔍 KRITIS RAW RESPONSE for {content_type} {article_number or '(preamble)'}:")
+            logger.info("="*80)
+            logger.info(f"Raw response (first 500 chars): {analysis_text[:500]}")
+            logger.info("="*80)
+            
             # Clean response
             if analysis_text.startswith('```json'):
                 analysis_text = analysis_text[7:]
@@ -333,6 +343,38 @@ Return one valid JSON object only, with this structure:
                 analysis_text = analysis_text[:-3]
             
             analysis = json.loads(analysis_text)
+            
+            # LOG PARSED ANALYSIS
+            logger.info("📊 PARSED ANALYSIS STRUCTURE:")
+            analysis_data = analysis.get('analysis', {})
+            pt_data = analysis_data.get('pt', {})
+            en_data = analysis_data.get('en', {})
+            
+            pt_title = pt_data.get('informal_summary_title', '')
+            pt_summary = pt_data.get('informal_summary', '')
+            en_title = en_data.get('informal_summary_title', '')
+            en_summary = en_data.get('informal_summary', '')
+            
+            logger.info(f"  PT Title: {pt_title[:80]}")
+            logger.info(f"  PT Summary (first 150 chars): {pt_summary[:150]}")
+            logger.info(f"  EN Title: {en_title[:80]}")
+            logger.info(f"  EN Summary (first 150 chars): {en_summary[:150]}")
+            
+            # Language detection
+            import re
+            pt_has_portuguese = bool(re.search(r'[àáâãçéêíóôõú]', pt_summary.lower()))
+            en_has_portuguese = bool(re.search(r'[àáâãçéêíóôõú]', en_summary.lower()))
+            
+            logger.info(f"  🔍 Language Check:")
+            logger.info(f"     PT field has Portuguese chars: {pt_has_portuguese}")
+            logger.info(f"     EN field has Portuguese chars: {en_has_portuguese}")
+            
+            if not pt_has_portuguese and len(pt_summary) > 50:
+                logger.warning(f"  ⚠️ WARNING: PT field appears to be in English!")
+            if en_has_portuguese and len(en_summary) > 50:
+                logger.warning(f"  ⚠️ WARNING: EN field appears to be in Portuguese!")
+            
+            logger.info("="*80)
             
             # Validate and normalize structure
             if 'tags' not in analysis:
@@ -526,7 +568,7 @@ Return one valid JSON object only, with this structure:
             'source_id': source_id,
             'government_entity_id': government_entity_id,
             'official_number': official_number,
-            'slug': self._generate_slug(official_number),
+            'slug': self._generate_slug(official_title),
             'type_id': type_id,
             'category_id': 'ADMINISTRATIVE',  # Will be updated by synthesis
             'enactment_date': enactment_date,
@@ -657,10 +699,12 @@ Return one valid JSON object only, with this structure:
         # Otherwise map from database ID
         return type_mapping_pt.get(law_type, 'Lei')
     
-    def _generate_slug(self, official_number: str) -> str:
-        """Generate URL-safe slug from official number."""
-        slug = re.sub(r'[^\w\s-]', '', official_number.lower())
+    def _generate_slug(self, official_title: str) -> str:
+        """Generate URL-safe slug from official title."""
+        slug = re.sub(r'[^\w\s-]', '', official_title.lower())
         slug = re.sub(r'[-\s]+', '-', slug)
+        # Truncate to reasonable length (100 chars) before adding UUID
+        slug = slug[:100].rstrip('-')
         return f"{slug}-{uuid.uuid4().hex[:8]}"
     
     def _map_law_type(self, type_str: str) -> str:
