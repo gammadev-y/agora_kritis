@@ -15,6 +15,7 @@ import uuid
 from datetime import datetime
 from analysis.kritis_analyzer_v40 import KritisAnalyzerV40
 from analysis.kritis_analyzer_v50 import KritisAnalyzerV50
+from analysis.kritis_analyzer_v6 import KritisAnalyzerV6
 from lib.supabase_client import get_supabase_admin_client
 
 # Configure logging
@@ -101,7 +102,7 @@ Examples:
   python main.py --source-id <UUID> v40-synthesize
   python main.py --source-id <UUID> v40-ingest
   
-  # Kritis V5.0 (Enhanced Relationships) - Complete Pipeline (RECOMMENDED)
+  # Kritis V5.0 (Enhanced Relationships) - Complete Pipeline
   python main.py --source-id <UUID> v50-complete
   
   # Kritis V5.0 (Enhanced Relationships) - Individual Stages
@@ -109,8 +110,16 @@ Examples:
   python main.py --source-id <UUID> v50-analyze
   python main.py --source-id <UUID> v50-build-graph
   
+  # Kritis V6.0 (Production Analyst) - Complete Pipeline (RECOMMENDED)
+  python main.py --source-id <UUID> v6-complete
+  
+  # Kritis V6.0 (Production Analyst) - Individual Stages
+  python main.py --source-id <UUID> v6-extract
+  python main.py --source-id <UUID> v6-map
+  python main.py --source-id <UUID> v6-build-graph
+  
   # Background job notification (optional)
-  python main.py --source-id <UUID> --job-id <JOB_UUID> v50-complete
+  python main.py --source-id <UUID> --job-id <JOB_UUID> v6-complete
         """
     )
     
@@ -179,7 +188,28 @@ Examples:
     
     v50_complete_parser = subparsers.add_parser(
         'v50-complete',
-        help='Kritis V5.0 Complete Pipeline: Run all stages with enhanced relationship processing (RECOMMENDED)'
+        help='Kritis V5.0 Complete Pipeline: Run all stages with enhanced relationship processing'
+    )
+    
+    # Kritis V6.0 Commands - Production Analyst with Local Translation (RECOMMENDED)
+    v6_stage1_parser = subparsers.add_parser(
+        'v6-extract',
+        help='Kritis V6.0 Stage 1: Enhanced extractor'
+    )
+    
+    v6_stage2_parser = subparsers.add_parser(
+        'v6-map',
+        help='Kritis V6.0 Stage 2: Map Phase - PT-only analysis (translation done locally later)'
+    )
+    
+    v6_stage3_parser = subparsers.add_parser(
+        'v6-build-graph',
+        help='Kritis V6.0 Stage 3: Knowledge Graph Builder with local translation and token-aware Reduce'
+    )
+    
+    v6_complete_parser = subparsers.add_parser(
+        'v6-complete',
+        help='Kritis V6.0 Complete Pipeline: Production analyst with cost optimization (RECOMMENDED)'
     )
     
     
@@ -280,6 +310,51 @@ Examples:
                 "description": "Runs only the knowledge graph building stage with consistent relationship processing.",
                 "stages": ["build-graph"],
                 "version": "5.0",
+                "status": "stable",
+                "recommended": False
+            },
+            {
+                "id": "v6-complete",
+                "name": "Kritis V6.0 - Complete Pipeline (Production Analyst)",
+                "description": "Runs the complete V6.0 pipeline with cost optimization: Portuguese-only AI analysis, local translation (argos-translate + googletrans), token-aware Reduce phase. RECOMMENDED for production use.",
+                "stages": ["extract", "map", "build-graph"],
+                "version": "6.0",
+                "status": "stable",
+                "recommended": True,
+                "features": [
+                    "Portuguese-only AI analysis (source language)",
+                    "Local translation (argos-translate with googletrans fallback)",
+                    "Token-aware Reduce phase for large laws",
+                    "Enhanced AI persona with style guide",
+                    "Multilingual tag aggregation",
+                    "Cost-optimized workflow",
+                    "All V5.0 relationship features"
+                ]
+            },
+            {
+                "id": "v6-extract",
+                "name": "Kritis V6.0 - Extraction Only",
+                "description": "Runs only the extraction stage.",
+                "stages": ["extract"],
+                "version": "6.0",
+                "status": "stable",
+                "recommended": False
+            },
+            {
+                "id": "v6-map",
+                "name": "Kritis V6.0 - Map Phase Only",
+                "description": "Runs only the Map phase with Portuguese-only analysis.",
+                "stages": ["map"],
+                "version": "6.0",
+                "status": "stable",
+                "recommended": False
+            },
+            {
+                "id": "v6-build-graph",
+                "name": "Kritis V6.0 - Knowledge Graph Builder Only",
+                "description": "Runs only the knowledge graph building with local translation and token-aware Reduce.",
+                "stages": ["build-graph"],
+                "version": "6.0",
                 "status": "stable",
                 "recommended": False
             }
@@ -446,6 +521,82 @@ Examples:
             logger.info(f"   - Law-to-law relationships: {graph_result['relationships_created']['law_relationships']}")
             logger.info("   - Temporal consistency validation")
             logger.info("   - Automatic status updates (superseded/revoked)")
+        
+        # ========================================
+        # KRITIS V6.0 COMMANDS (PRODUCTION ANALYST) - RECOMMENDED
+        # ========================================
+        
+        elif args.command == 'v6-extract':
+            # Kritis V6.0 Stage 1: Enhanced Extractor
+            logger.info("🚀 Using Kritis V6.0 Production Analyst Pipeline (RECOMMENDED)")
+            kritis_v6 = KritisAnalyzerV6()
+            result = kritis_v6.run_enhanced_extractor_phase(args.source_id)
+            logger.info("🎯 Kritis V6.0 Stage 1 completed successfully")
+            logger.info(f"📄 Extraction Results:")
+            logger.info(f"Total Articles: {result['total_articles']}")
+            logger.info(f"Has Preamble: {'Yes' if result['has_preamble'] else 'No'}")
+            if result['metadata']:
+                logger.info(f"Official Number: {result['metadata'].get('official_number', 'N/A')}")
+                logger.info(f"Title: {result['metadata'].get('official_title', 'N/A')}")
+                logger.info(f"Date: {result['metadata'].get('enactment_date', 'N/A')}")
+            logger.info("📋 Next step: python main.py v6-map --source-id " + args.source_id)
+        
+        elif args.command == 'v6-map':
+            # Kritis V6.0 Stage 2: Map Phase (PT-only analysis)
+            kritis_v6 = KritisAnalyzerV6()
+            result = kritis_v6.run_kritis_v6_map_phase(args.source_id)
+            logger.info("🎯 Kritis V6.0 Stage 2 (Map Phase) completed successfully")
+            logger.info(f"📊 Portuguese-only Analysis:")
+            logger.info(f"Items Analyzed: {result['total_items_analyzed']}")
+            logger.info(f"Successful: {result['successful_analyses']}")
+            logger.info(f"Completion Rate: {result['completion_rate']:.1f}%")
+            logger.info("💡 Translation will happen locally in next stage")
+            logger.info("📋 Next step: python main.py v6-build-graph --source-id " + args.source_id)
+        
+        elif args.command == 'v6-build-graph':
+            # Kritis V6.0 Stage 3: Knowledge Graph Builder with Local Translation
+            kritis_v6 = KritisAnalyzerV6()
+            result = kritis_v6.run_knowledge_graph_builder_phase(args.source_id)
+            logger.info("🎯 Kritis V6.0 Stage 3 completed successfully")
+            logger.info(f"📚 Law created with cost-optimized workflow: {result['law_id']}")
+            logger.info(f"🔗 Relationships Created:")
+            logger.info(f"   - Law-to-Law: {result['relationships_created']['law_relationships']}")
+            logger.info(f"   - Article-to-Article: {result['relationships_created']['article_references']}")
+            logger.info(f"🌍 Local translation applied to all content")
+            logger.info("✅ Full Kritis V6.0 Pipeline completed!")
+        
+        elif args.command == 'v6-complete':
+            # Kritis V6.0 Complete Pipeline: All stages in sequence
+            logger.info("🚀 Starting Kritis V6.0 Complete Production Analyst Pipeline (RECOMMENDED)")
+            kritis_v6 = KritisAnalyzerV6()
+            
+            # Stage 1: Extract
+            logger.info("📋 Stage 1/3: Extraction...")
+            extract_result = kritis_v6.run_enhanced_extractor_phase(args.source_id)
+            logger.info(f"✅ Stage 1 complete: {extract_result['total_articles']} articles")
+            
+            # Stage 2: Map Phase (PT-only analysis)
+            logger.info("📋 Stage 2/3: Map Phase (PT-only analysis)...")
+            map_result = kritis_v6.run_kritis_v6_map_phase(args.source_id)
+            logger.info(f"✅ Stage 2 complete: {map_result['successful_analyses']}/{map_result['total_items_analyzed']} items ({map_result['completion_rate']:.1f}%)")
+            
+            # Stage 3: Build Knowledge Graph with Local Translation
+            logger.info("📋 Stage 3/3: Knowledge Graph Building (with local translation)...")
+            graph_result = kritis_v6.run_knowledge_graph_builder_phase(args.source_id)
+            logger.info(f"✅ Stage 3 complete: Law {graph_result['law_id']}")
+            
+            logger.info("🎉 Complete Kritis V6.0 Pipeline finished successfully!")
+            logger.info(f"📚 Final Law ID: {graph_result['law_id']}")
+            logger.info("💰 Cost Optimization Features:")
+            logger.info("   - AI only analyzes in Portuguese (source language)")
+            logger.info("   - Local translation (argos-translate + googletrans fallback)")
+            logger.info("   - Token-aware Reduce phase for large laws")
+            logger.info("   - Multilingual tag aggregation")
+            logger.info("🔗 Enhanced Relationship Features:")
+            logger.info(f"   - Article-to-article relationships: {graph_result['relationships_created']['article_references']}")
+            logger.info(f"   - Law-to-law relationships: {graph_result['relationships_created']['law_relationships']}")
+            logger.info("   - Temporal consistency validation")
+            logger.info("   - Automatic status updates")
             
     except KeyboardInterrupt:
         logger.warning("⚠️ Analysis interrupted by user")

@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import uuid
+import unicodedata
 from typing import Dict, List, Any, Optional
 from datetime import datetime, date, timedelta
 
@@ -263,17 +264,16 @@ DOCUMENT:
     
     def _analyze_content_v50(self, content: str, content_type: str, article_number: Optional[str] = None) -> Dict[str, Any]:
         """Analyze content using Kritis V5.0 Master Prompt with enhanced cross-references."""
-        
-        # The Kritis V5.0 Master Prompt from LawArticleRelationships.md
+
         analysis_prompt = f"""
-You are "Kritis," an expert legal analyst for the Agora platform. Your task is to deconstruct the following Portuguese legal article into a highly structured JSON object.
+You are "Kritis," an expert legal analyst. Your task is to deconstruct the following Portuguese legal article into structured JSON object.
 
 LANGUAGE REQUIREMENTS:
-    ⚠️ You MUST provide translations in BOTH languages ⚠️
-    ⚠️ DO NOT MIX LANGUAGES ⚠️
+    You MUST provide translations in BOTH languages
+    DO NOT MIX LANGUAGES
 
 FORMATTING REQUIREMENTS:
-    - Use \n to separate paragraphs 
+    Use \n to separate paragraphs 
 
 STYLE GUIDE:
     Plain Language: Use simple, everyday words. Avoid legal jargon entirely.
@@ -285,11 +285,13 @@ CROSS REFERENCES:
 - Meticulously identify all references to other legal articles or laws. References may appear as hyperlinks (<a> tags) or as phrases like "n.º X do artigo Y" or "Decreto-Lei n.º Z".
 - For each reference, extract:
     - relationship (e.g., "cites", "amends", "revokes", "references_internal")
-    - type (e.g., "Decreto", "Lei", "Decreto-Lei")
     - number
     - article_number (if present)
     - url (must be the href if present; for internal references with only article numbers, set url to null)
 - If a reference is internal (e.g., "nos termos do n.º 2"), mark url: null.
+
+TAGS:
+- Identify and list all unique persons, organizations, and concepts mentioned. language pt-pt.
 
 ARTICLE TEXT TO ANALYZE:
 {content}
@@ -391,11 +393,43 @@ Return one valid JSON object only, with this EXACT structure:
             # Check if PT summary is too similar to original content (just removed newlines)
             analysis_data = analysis.get('analysis', {})
             pt_data = analysis_data.get('pt', {})
+            en_data = analysis_data.get('en', {})
+            
             pt_summary = pt_data.get('informal_summary', '')
+            pt_title = pt_data.get('informal_summary_title', '')
+            en_summary = en_data.get('informal_summary', '')
+            en_title = en_data.get('informal_summary_title', '')
             
             # Remove formatting differences for comparison
             content_normalized = content.replace('\n\n', ' ').replace('\n', ' ').strip()
             summary_normalized = pt_summary.replace('\n\n', ' ').replace('\n', ' ').strip()
+            
+            # FIX: Check if title text is duplicated at the start of summary and remove it
+            if pt_title and pt_summary:
+                # Remove markdown formatting from title for comparison
+                title_clean = re.sub(r'\*\*|\*|_|`', '', pt_title).strip()
+                # Check if summary starts with the title text
+                if title_clean and summary_normalized.startswith(title_clean):
+                    # Remove title from summary
+                    pt_summary_fixed = pt_summary[len(title_clean):].strip()
+                    # Remove any leading punctuation or newlines
+                    pt_summary_fixed = re.sub(r'^[\s:;,.\-]+', '', pt_summary_fixed)
+                    if pt_summary_fixed:
+                        logger.info(f"🔧 Removed duplicate title text from PT summary")
+                        analysis['analysis']['pt']['informal_summary'] = pt_summary_fixed
+                        pt_summary = pt_summary_fixed
+                        summary_normalized = pt_summary.replace('\n\n', ' ').replace('\n', ' ').strip()
+            
+            # Do same for English
+            if en_title and en_summary:
+                title_clean = re.sub(r'\*\*|\*|_|`', '', en_title).strip()
+                if title_clean and en_summary.startswith(title_clean):
+                    en_summary_fixed = en_summary[len(title_clean):].strip()
+                    en_summary_fixed = re.sub(r'^[\s:;,.\-]+', '', en_summary_fixed)
+                    if en_summary_fixed:
+                        logger.info(f"🔧 Removed duplicate title text from EN summary")
+                        analysis['analysis']['en']['informal_summary'] = en_summary_fixed
+                        en_summary = en_summary_fixed
             
             # If summary is just the content with spaces instead of newlines, it's not a real summary
             if content_normalized and summary_normalized and len(summary_normalized) > 50:
@@ -519,13 +553,15 @@ Return one valid JSON object only, with this EXACT structure:
         """Create parent law record and return law_id."""
         metadata = extraction_data.get('metadata', {})
         
-        # Get source data (translations and published_at)
-        source_response = self.supabase_admin.table('sources').select('translations, published_at').eq('id', source_id).execute()
+        # Get source data (translations, published_at, and main_url)
+        source_response = self.supabase_admin.table('sources').select('translations, published_at, main_url').eq('id', source_id).execute()
         source_translations = {}
         source_published_at = None
+        source_main_url = None
         if source_response.data:
             source_translations = source_response.data[0].get('translations', {})
             source_published_at = source_response.data[0].get('published_at')
+            source_main_url = source_response.data[0].get('main_url')
         
         # Hardcode Portugal government entity ID for analysis
         government_entity_id = '3ee8d3ef-7226-4bf3-8ea2-6e2e036d203f'
@@ -576,6 +612,11 @@ Return one valid JSON object only, with this EXACT structure:
             'translations': {},
             'tags': {}
         }
+        
+        # Add URL if available and column exists
+        if source_main_url:
+            law_data['url'] = source_main_url
+            logger.info(f"📎 Adding URL to law record: {source_main_url}")
         
         response = self.supabase_admin.table('laws').insert(law_data).execute()
         law_id = response.data[0]['id']
@@ -700,12 +741,18 @@ Return one valid JSON object only, with this EXACT structure:
         return type_mapping_pt.get(law_type, 'Lei')
     
     def _generate_slug(self, official_title: str) -> str:
-        """Generate URL-safe slug from official title."""
-        slug = re.sub(r'[^\w\s-]', '', official_title.lower())
+        """Generate URL-safe slug from official title, normalizing Portuguese accented characters."""
+        # Normalize Portuguese accented characters (á->a, ç->c, ã->a, etc.)
+        normalized = unicodedata.normalize('NFKD', official_title)
+        ascii_text = normalized.encode('ascii', 'ignore').decode('ascii')
+        
+        # Convert to lowercase and remove non-word characters (except spaces and hyphens)
+        slug = re.sub(r'[^\w\s-]', '', ascii_text.lower())
+        # Replace multiple spaces/hyphens with single hyphen
         slug = re.sub(r'[-\s]+', '-', slug)
-        # Truncate to reasonable length (100 chars) before adding UUID
-        slug = slug[:100].rstrip('-')
-        return f"{slug}-{uuid.uuid4().hex[:8]}"
+        # Truncate to reasonable length and remove trailing hyphens
+        slug = slug[:150].rstrip('-')
+        return slug
     
     def _map_law_type(self, type_str: str) -> str:
         """
@@ -890,11 +937,16 @@ Return one valid JSON object only, with this EXACT structure:
                     is_invalid_translation = True
                 elif not pt_title or not en_title or pt_title == '[informal_summary_title not found]' or en_title == '[informal_summary_title not found]':
                     is_invalid_translation = True
+                # Check if summary ends with "..." indicating it was cut off
+                elif pt_summary.endswith('...') or en_summary.endswith('...'):
+                    logger.warning(f"⚠️ Article {article_order} summary appears incomplete (ends with '...')")
+                    is_invalid_translation = True
             
             if is_invalid_translation:
                 logger.warning(f"⚠️ Invalid or empty translations for article {article_order}, creating minimal structure from official text")
-                # Use first 200 chars of official text as fallback summary
-                fallback_summary = official_text[:200] + ('...' if len(official_text) > 200 else '')
+                # Use first 300 chars of official text as fallback summary (more complete)
+                fallback_summary_pt = official_text[:300].rstrip() if len(official_text) > 300 else official_text.rstrip()
+                # Don't add "..." to make it look incomplete
                 
                 # Try to extract a title from the official text (first line or first sentence)
                 fallback_title_pt = "Sem título"
@@ -905,7 +957,7 @@ Return one valid JSON object only, with this EXACT structure:
                 title_match = re.search(r'\*\*\((.*?)\)\*\*', official_text)
                 if title_match:
                     fallback_title_pt = title_match.group(1)
-                    fallback_title_en = f"[Translation pending] {title_match.group(1)}"
+                    fallback_title_en = "Translation pending"
                 else:
                     # Try to extract meaningful title from content
                     # Remove leading dash and article number prefix (e.g., "- ", "1 - ", "2 - ", "X - ")
@@ -920,17 +972,28 @@ Return one valid JSON object only, with this EXACT structure:
                     
                     # Take first 60 chars as title
                     if first_sentence and len(first_sentence) > 0:
-                        fallback_title_pt = first_sentence[:60] + ('...' if len(first_sentence) > 60 else '')
-                        fallback_title_en = f"[Translation pending] {fallback_title_pt}"
+                        fallback_title_pt = first_sentence[:60].rstrip()
+                        # Only add ellipsis if we actually truncated
+                        if len(first_sentence) > 60:
+                            fallback_title_pt += '...'
+                        fallback_title_en = "Translation pending"
+                
+                # For summary, remove the title text if it appears at the start to avoid duplication
+                fallback_summary_clean = fallback_summary_pt
+                if fallback_title_pt != "Sem título" and fallback_summary_pt.startswith(fallback_title_pt.replace('...', '').strip()):
+                    # Remove title from summary and clean up
+                    remaining = fallback_summary_pt[len(fallback_title_pt.replace('...', '').strip()):].strip()
+                    if remaining:
+                        fallback_summary_clean = remaining
                 
                 translations = {
                     'pt': {
                         'informal_summary_title': fallback_title_pt, 
-                        'informal_summary': fallback_summary
+                        'informal_summary': fallback_summary_clean
                     },
                     'en': {
                         'informal_summary_title': fallback_title_en, 
-                        'informal_summary': f'[Translation pending] {fallback_summary}'
+                        'informal_summary': 'Translation pending'
                     }
                 }
             
@@ -1218,51 +1281,213 @@ Return one valid JSON object only, with this EXACT structure:
             logger.warning(f"⚠️ Failed to update article status: {e}")
     
     def _aggregate_tags_v50(self, law_id: str, analysis_data: Dict[str, Any]) -> None:
-        """Aggregate tags from all articles to parent law and add preamble translations."""
-        # Get all tags from articles
-        articles_response = self.supabase_admin.table('law_articles').select('tags').eq('law_id', law_id).execute()
+        """
+        Aggregate tags and summaries from all articles to create comprehensive law-level data.
+        - Translates Portuguese tags to English
+        - Creates final summary by aggregating all article summaries
+        - Updates laws.tags and laws.translations
+        """
+        # Get all tags and translations from articles
+        articles_response = self.supabase_admin.table('law_articles').select('tags, translations, article_order').eq('law_id', law_id).order('article_order').execute()
         
-        aggregated_tags = {
+        # Aggregate tags (Portuguese only from articles)
+        aggregated_tags_pt = {
             'person': [],
             'organization': [],
             'concept': []
         }
         
-        unique_tags = {
+        unique_tags_pt = {
             'person': set(),
             'organization': set(),
             'concept': set()
         }
         
+        # Collect article summaries for final law summary
+        article_summaries_pt = []
+        article_summaries_en = []
+        
         for article in articles_response.data:
+            # Aggregate tags
             if article.get('tags'):
                 tags = article['tags']
                 if isinstance(tags, dict):
                     for category in ['person', 'organization', 'concept']:
                         if category in tags and isinstance(tags[category], list):
                             for tag in tags[category]:
-                                if tag and tag not in unique_tags[category]:
-                                    unique_tags[category].add(tag)
-                                    aggregated_tags[category].append(tag)
+                                if tag and tag not in unique_tags_pt[category]:
+                                    unique_tags_pt[category].add(tag)
+                                    aggregated_tags_pt[category].append(tag)
+            
+            # Collect article summaries for aggregation
+            if article.get('translations'):
+                translations = article['translations']
+                if isinstance(translations, dict):
+                    pt_data = translations.get('pt', {})
+                    en_data = translations.get('en', {})
+                    
+                    if isinstance(pt_data, dict):
+                        pt_summary = pt_data.get('informal_summary', '').strip()
+                        if pt_summary and pt_summary != 'Translation pending':
+                            article_summaries_pt.append(f"Art. {article.get('article_order', '?')}: {pt_summary}")
+                    
+                    if isinstance(en_data, dict):
+                        en_summary = en_data.get('informal_summary', '').strip()
+                        if en_summary and en_summary != 'Translation pending':
+                            article_summaries_en.append(f"Art. {article.get('article_order', '?')}: {en_summary}")
         
-        # Extract preamble translations for law record
+        # Translate tags from Portuguese to English using AI
+        logger.info(f"🌍 Translating {len(aggregated_tags_pt['person']) + len(aggregated_tags_pt['organization']) + len(aggregated_tags_pt['concept'])} tags to English...")
+        tags_en = self._translate_tags_to_english(aggregated_tags_pt)
+        
+        # Create multilingual tags structure
+        multilingual_tags = {
+            'pt': aggregated_tags_pt,
+            'en': tags_en
+        }
+        
+        # Generate comprehensive law summary from all article summaries
         law_translations = {}
+        
+        # First try to get preamble translations
         analysis_results = analysis_data.get('analysis_results', [])
         for analysis_item in analysis_results:
             if analysis_item['content_type'] == 'preamble':
                 preamble_analysis = analysis_item['analysis']
-                # Extract translations from preamble analysis
                 translations = preamble_analysis.get('analysis', {})
                 if translations and (translations.get('pt') or translations.get('en')):
                     law_translations = translations
-                    logger.info(f"📝 Adding preamble translations to law record")
+                    logger.info(f"📝 Found preamble translations for law record")
                 break
         
-        # Update parent law with tags and translations
-        update_data = {'tags': aggregated_tags}
+        # If we have article summaries, create comprehensive law summary
+        if article_summaries_pt or article_summaries_en:
+            logger.info(f"📚 Generating comprehensive law summary from {len(article_summaries_pt)} article summaries...")
+            comprehensive_summary = self._generate_comprehensive_law_summary(
+                article_summaries_pt, 
+                article_summaries_en,
+                law_translations
+            )
+            
+            # If we got a good comprehensive summary, use it (or merge with preamble)
+            if comprehensive_summary and comprehensive_summary.get('pt') and comprehensive_summary.get('en'):
+                law_translations = comprehensive_summary
+        
+        # Update parent law with multilingual tags and comprehensive translations
+        update_data = {'tags': multilingual_tags}
         if law_translations:
             update_data['translations'] = law_translations
         
         self.supabase_admin.table('laws').update(update_data).eq('id', law_id).execute()
         
-        logger.info(f"📊 Aggregated tags: {len(aggregated_tags['person'])} persons, {len(aggregated_tags['organization'])} orgs, {len(aggregated_tags['concept'])} concepts")
+        logger.info(f"📊 Aggregated tags (PT): {len(aggregated_tags_pt['person'])} persons, {len(aggregated_tags_pt['organization'])} orgs, {len(aggregated_tags_pt['concept'])} concepts")
+        logger.info(f"📊 Translated tags (EN): {len(tags_en['person'])} persons, {len(tags_en['organization'])} orgs, {len(tags_en['concept'])} concepts")
+    
+    def _translate_tags_to_english(self, tags_pt: Dict[str, List[str]]) -> Dict[str, List[str]]:
+        """Translate Portuguese tags to English using Gemini AI."""
+        # If no tags, return empty structure
+        if not any(tags_pt.values()):
+            return {'person': [], 'organization': [], 'concept': []}
+        
+        prompt = f"""Translate the following Portuguese tags to English. Keep proper names as-is.
+Return ONLY a JSON object with this exact structure, no additional text:
+
+{{
+    "person": ["English translation"],
+    "organization": ["English translation"],
+    "concept": ["English translation"]
+}}
+
+Portuguese tags to translate:
+{json.dumps(tags_pt, ensure_ascii=False, indent=2)}
+"""
+        
+        try:
+            response = self.model.generate_content(prompt)
+            response_text = response.text.strip()
+            
+            # Clean response
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]
+            
+            tags_en = json.loads(response_text)
+            return tags_en
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to translate tags: {e}")
+            # Return empty structure on error
+            return {'person': [], 'organization': [], 'concept': []}
+    
+    def _generate_comprehensive_law_summary(
+        self, 
+        article_summaries_pt: List[str], 
+        article_summaries_en: List[str],
+        existing_translations: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Generate comprehensive law-level summary by aggregating article summaries.
+        This creates the final "big picture" summary for laws.translations.
+        """
+        # Build the reducer prompt
+        combined_pt = "\n".join(article_summaries_pt) if article_summaries_pt else ""
+        combined_en = "\n".join(article_summaries_en) if article_summaries_en else ""
+        
+        # If we don't have enough content, return existing or empty
+        if len(combined_pt) < 100 and len(combined_en) < 100:
+            return existing_translations if existing_translations else {}
+        
+        prompt = f"""You are analyzing a Portuguese law. Below are summaries of all individual articles.
+
+Your task: Create a comprehensive, high-level summary of the ENTIRE LAW (not individual articles).
+
+**PORTUGUESE ARTICLE SUMMARIES:**
+{combined_pt}
+
+**ENGLISH ARTICLE SUMMARIES:**
+{combined_en}
+
+Create a comprehensive summary that:
+1. Captures the main purpose and scope of the law
+2. Highlights key provisions across all articles
+3. Provides context and practical implications
+4. Is written in a clear, accessible style (not article-by-article)
+
+Return ONLY a JSON object with this exact structure:
+
+{{
+    "pt": {{
+        "informal_summary_title": "Título descritivo da lei completa em português",
+        "informal_summary": "Resumo abrangente e completo da lei inteira em português (3-5 parágrafos)"
+    }},
+    "en": {{
+        "informal_summary_title": "Descriptive title of the complete law in English",
+        "informal_summary": "Comprehensive summary of the entire law in English (3-5 paragraphs)"
+    }}
+}}
+"""
+        
+        try:
+            response = self.model.generate_content(prompt)
+            response_text = response.text.strip()
+            
+            # Clean response
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]
+            
+            comprehensive = json.loads(response_text)
+            
+            # Validate structure
+            if comprehensive.get('pt') and comprehensive.get('en'):
+                logger.info(f"✅ Generated comprehensive law summary")
+                return comprehensive
+            else:
+                logger.warning(f"⚠️ Comprehensive summary has invalid structure")
+                return existing_translations if existing_translations else {}
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to generate comprehensive summary: {e}")
+            return existing_translations if existing_translations else {}
